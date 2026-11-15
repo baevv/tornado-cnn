@@ -14,7 +14,7 @@ The data is [TorNet](https://github.com/mit-ll/tornet), a public benchmark of US
 | Tornado samples | 13,857 (6.8%), strongly imbalanced |
 | One sample | 6 radar variables × 4 frames (5 min apart) × 2 elevation angles × 120 azimuth × 240 range |
 | Used here | 2015, 2017, 2019: 68,314 samples, 5,388 tornadoes |
-| Input to the network | reflectivity (DBZ) + radial velocity (VEL), lowest sweep, last frame → `2 × 120 × 240` |
+| Input to the network | reflectivity (DBZ) + radial velocity (VEL) + spectrum width (WIDTH), lowest sweep, last frame → `3 × 120 × 240` (channels chosen by the EDA in notebook 01) |
 
 Labels: `TOR` (confirmed tornado) = 1; `WRN` (warning issued, no tornado) and `NUL` (random storm) = 0.
 The official test split of each year is kept untouched for the final evaluation.
@@ -25,18 +25,19 @@ The data is **not** stored in this repository. The notebooks download it from Ze
 
 | Notebook | What it does | Open |
 |---|---|---|
-| `01_explore_data` | Catalog statistics, radar images, preprocessing check | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/01_explore_data.ipynb) |
-| `02_preprocess` | Downloads the selected years, saves compact arrays to Google Drive | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/02_preprocess.ipynb) |
+| `01_explore_data` | EDA: metadata vs. radar data, class balance, radar images, which variables/sweep/frame to use | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/01_explore_data.ipynb) |
+| `02_preprocess` | Preprocessing demo on one sample, then all selected years saved to Google Drive | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/02_preprocess.ipynb) |
 
 ## Project structure
 
 ```
 notebooks/
-  01_explore_data.ipynb   catalog statistics, radar images, preprocessing check
-  02_preprocess.ipynb     download selected years, save compact arrays to Google Drive
+  01_explore_data.ipynb   EDA: data structure, catalog, radar images, evidence for preprocessing choices
+  02_preprocess.ipynb     preprocessing demo, then download selected years and save compact arrays to Drive
 src/
   paths.py                storage locations on Colab / locally
   tornet.py               download, catalog, reading and preprocessing samples
+  eda.py                  raw-data analysis: per-variable measures, rotation strength, separability (AUC)
   viz.py                  radar plots
 configs/
   data.json               years, channels, sweep, frame

@@ -30,7 +30,7 @@ ZENODO_RECORDS = {
     2018: 12655187, 2019: 12655716, 2020: 12655717, 2021: 12655718, 2022: 12655719,
 }
 
-# Ölçekleme için sabit fiziksel aralıklar (TorNet'in referans kodundan).
+# Ölçekleme için sabit fiziksel aralıklar (TorNet'in referans kodundan; WIDTH bizim EDA'mıza göre).
 # Verimizin istatistikleri değil sabit aralıklar kullanıldığı için test kümesinden eğitime bilgi sızmaz.
 CHANNEL_RANGES = {
     "DBZ": (-20.0, 60.0),    # yansıtıcılık, dBZ
@@ -38,8 +38,8 @@ CHANNEL_RANGES = {
     "KDP": (-2.0, 5.0),
     "RHOHV": (0.2, 1.04),
     "ZDR": (-1.0, 8.0),
-    "WIDTH": (0.0, 9.0),
-}
+    "WIDTH": (0.0, 16.0),    # hız dağınıklığı (spectrum width), m/s. MIT 0–9 kullanıyor; bizim EDA'mızda
+}                            # 0–9 piksellerin %1'ini kırpıyordu, 0–16 ise %99,9'unu kapsıyor.
 
 CATEGORY_NAMES = {
     "TOR": "doğrulanmış tornado",
@@ -104,7 +104,7 @@ def to_uint8(x: np.ndarray, lo: float, hi: float) -> np.ndarray:
     """Fiziksel değerleri 1..255 aralığına ölçekler; 0'ı 'boş piksel' (NaN) için ayırır.
 
     Piksel başına 4 bayt yerine 1 bayt kullanmak işlenmiş veriyi 4 kat küçültür.
-    Kaybedilen hassasiyet: 80 dBZ / 254 adım = 0,31 dBZ; 120 m/s / 254 = 0,47 m/s.
+    Kaybedilen hassasiyet: 80 dBZ / 254 adım = 0,31 dBZ; 120 m/s / 254 = 0,47 m/s; 16 m/s / 254 = 0,06 m/s.
     """
     out = np.zeros(x.shape, dtype=np.uint8)
     ok = np.isfinite(x)                                   # NaN olmayan pikseller
@@ -118,12 +118,13 @@ def from_uint8(q: np.ndarray, variables) -> np.ndarray:
 
     Boş pikseller (0), ölçeklemeden sonra körü körüne 0 yapılmak yerine
     fiziksel olarak anlamlı bir değerle doldurulur:
-      * DBZ: -1 (= en düşük yansıtıcılık, yani "yankı yok")
-      * VEL:  0 (= sıfır radyal hız, yani "hareket yok")
+      * DBZ:   -1 (= en düşük yansıtıcılık, yani "yankı yok")
+      * VEL:    0 (= sıfır radyal hız, yani "hareket yok")
+      * WIDTH: -1 (= en düşük hız dağınıklığı, yani "türbülans yok")
     """
     x = (q.astype(np.float32) - 1.0) / 254.0 * 2.0 - 1.0   # 1..255 -> -1..1
     missing = q == 0
-    fill_values = {"DBZ": -1.0, "VEL": 0.0}
+    fill_values = {"DBZ": -1.0, "VEL": 0.0, "WIDTH": -1.0}
     ch_axis = -3  # boyut sırası (..., kanal, yükseklik, genişlik)
     for i, v in enumerate(variables):
         sl = [slice(None)] * x.ndim

@@ -6,10 +6,16 @@ x/y kilometreye çeviriyoruz. Ağın kendisi yine kutupsal 120x240 ızgarayı g�
 """
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.patches import Circle
 
-CMAPS = {"DBZ": "turbo", "VEL": "seismic"}
-LIMITS = {"DBZ": (-20, 60), "VEL": (-40, 40)}
-UNITS = {"DBZ": "dBZ", "VEL": "m/s"}
+CMAPS = {"DBZ": "turbo", "VEL": "seismic", "WIDTH": "magma"}
+LIMITS = {"DBZ": (-20, 60), "VEL": (-40, 40), "WIDTH": (0, 12)}
+UNITS = {"DBZ": "dBZ", "VEL": "m/s", "WIDTH": "m/s"}
+TITLES = {
+    "DBZ": "DBZ: yağış yoğunluğu",
+    "VEL": "VEL: radara göre rüzgar hızı",
+    "WIDTH": "WIDTH: hız dağınıklığı (türbülans)",
+}
 
 
 def _xy(ds):
@@ -20,27 +26,46 @@ def _xy(ds):
     return R * np.sin(A), R * np.cos(A)          # x = doğu, y = kuzey
 
 
-def plot_sample(ds, variables=("DBZ", "VEL"), frame=-1, sweep=0, axes=None, title=None):
-    """Bir örneğin seçilen değişkenlerini yan yana, radara göre km cinsinden çizer."""
+def _title(ds, frame):
+    """Grafik başlığı: kategori, EF derecesi, radar istasyonu ve zaman."""
+    a = ds.attrs
+    ef = a.get("ef_number", -1)
+    ef_txt = f", EF{int(ef)}" if ef >= 0 else ""
+    return f"{a.get('category')}{ef_txt} | {a.get('site_name')} | {str(ds['time'].values[frame])[:16]}"
+
+
+def plot_sample(ds, variables=("DBZ", "VEL", "WIDTH"), frame=-1, sweep=0, axes=None, title=None,
+                mark_rotation=True):
+    """Bir örneğin seçilen değişkenlerini yan yana, radara göre km cinsinden çizer.
+
+    mark_rotation=True ise görüntünün merkezindeki en güçlü dönmenin yeri
+    (VEL'de yan yana duran mavi ve kırmızı) bütün panellerde daire içine alınır.
+    """
+    from .eda import rotation_location
+
     x, y = _xy(ds)
     if axes is None:
-        _, axes = plt.subplots(1, len(variables), figsize=(5.5 * len(variables), 4.5), layout="constrained")
+        _, axes = plt.subplots(1, len(variables), figsize=(5.2 * len(variables), 4.4), layout="constrained")
     axes = np.atleast_1d(axes)
+
+    spot = None
+    if mark_rotation:
+        loc = rotation_location(ds["VEL"].values[frame, :, :, sweep])
+        if loc is not None:
+            spot = (x[loc], y[loc])
+
     for ax, v in zip(axes, variables):
         vmin, vmax = LIMITS.get(v, (None, None))
         data = ds[v].values[frame, :, :, sweep]
         m = ax.pcolormesh(x, y, data, cmap=CMAPS.get(v, "viridis"), vmin=vmin, vmax=vmax, shading="gouraud")
         plt.colorbar(m, ax=ax, label=UNITS.get(v, v))
+        if spot is not None:
+            ax.add_patch(Circle(spot, radius=4, fill=False, color="black", lw=2))
         ax.set_aspect("equal")
         ax.set_xlabel("radarın doğusu (km)")
         ax.set_ylabel("radarın kuzeyi (km)")
-        ax.set_title(v)
-    if title is None:
-        a = ds.attrs
-        ef = a.get("ef_number", -1)
-        ef_txt = f", EF{int(ef)}" if ef >= 0 else ""
-        title = f"{a.get('category')}{ef_txt} | {a.get('site_name')} | {str(ds['time'].values[frame])[:16]}"
-    axes[0].figure.suptitle(title)
+        ax.set_title(TITLES.get(v, v), fontsize=10)
+    axes[0].figure.suptitle(title or _title(ds, frame))
     return axes
 
 

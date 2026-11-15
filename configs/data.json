@@ -1,6 +1,6 @@
 {
     "years": [2015, 2017, 2019],
-    "variables": ["DBZ", "VEL"],
+    "variables": ["DBZ", "VEL", "WIDTH"],
     "sweep": 0,
     "frame": -1,
     "drive_subdir": "tornado-cnn"

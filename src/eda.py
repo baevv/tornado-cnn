@@ -89,6 +89,11 @@ def rotation_location(vel: np.ndarray, center=True):
 
 
 def _summary(v: str, arr: np.ndarray) -> float:
+    """Bir değişkenin görüntüsünü tek bir sayıya indirir (dosyanın başındaki tabloya göre).
+
+    VEL için merkezdeki dönme gücü; diğerleri için gürültüsü temizlenmiş merkezde
+    1. ya da 99. yüzdelik.
+    """
     if v == "VEL":
         return rotation_strength(arr)
     c = denoise(arr)[CENTER]
@@ -132,16 +137,18 @@ def scan_archive(tar_path_or_url, catalog: pd.DataFrame, n_files=1500, keep_raw=
 
     Döner: dict
       features   - DataFrame, her satır bir örnek (+ katalogdan category, ef_number, label)
-      hists      - {değişken: histogram sayıları} (sweep 0, tüm örnekler)
-      steps      - {değişken: ardışık farklı değerler arasındaki adımların dağılımı}
+      hists      - {değişken: histogram sayıları} (sweep 0, tüm örnekler; kutular HIST_BINS'te)
+      outside    - {kanal: [ölçekleme aralığı dışında kalan piksel sayısı, toplam piksel]}
+      steps      - {kanal: ardışık farklı değerler arasındaki adımlar} -> ölçüm hassasiyeti
       raw        - {dosya_adı: bytes}: tüm TOR örnekleri + diğer kategorilerden birkaç tane
                    (görselleştirme için; tüm örnekleri saklamak bellek doldururdu)
     """
     meta = catalog.set_index("filename")
     rows = []
     hists = {v: np.zeros(len(HIST_BINS[v]) - 1, dtype=np.int64) for v in VARIABLES}
-    outside = {v: [0, 0] for v in ("DBZ", "VEL")}   # [aralık dışı piksel, toplam piksel]
-    uniques = {v: set() for v in ("DBZ", "VEL")}
+    used = ("DBZ", "VEL", "WIDTH")                   # modelde kullanılan kanallar
+    outside = {v: [0, 0] for v in used}             # [aralık dışı piksel, toplam piksel]
+    uniques = {v: set() for v in used}
     raw_keep, other_counts = {}, {}
 
     it = iter_tar_samples(tar_path_or_url)
@@ -158,7 +165,7 @@ def scan_archive(tar_path_or_url, catalog: pd.DataFrame, n_files=1500, keep_raw=
         rows.append(feats)
         for v in VARIABLES:
             hists[v] += np.histogram(values[v], bins=HIST_BINS[v])[0]
-        for v in ("DBZ", "VEL"):
+        for v in used:
             lo, hi = CHANNEL_RANGES[v]
             outside[v][0] += int(((values[v] < lo) | (values[v] > hi)).sum())
             outside[v][1] += values[v].size
