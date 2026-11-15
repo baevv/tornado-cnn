@@ -21,6 +21,13 @@ The official test split of each year is kept untouched for the final evaluation.
 
 The data is **not** stored in this repository. The notebooks download it from Zenodo.
 
+## Notebooks
+
+| Notebook | What it does | Open |
+|---|---|---|
+| `01_explore_data` | Catalog statistics, radar images, preprocessing check | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/01_explore_data.ipynb) |
+| `02_preprocess` | Downloads the selected years, saves compact arrays to Google Drive | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/02_preprocess.ipynb) |
+
 ## Project structure
 
 ```
@@ -38,15 +45,15 @@ results/                  figures and metric tables
 
 ## Running on Google Colab
 
-1. **GitHub token (once).** GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.
-   Repository access: *Only select repositories* → `tornado-cnn`. Permissions: *Contents → Read-only*.
-2. **Store it in Colab (once).** In Colab, click the key icon (Secrets) on the left, add `GITHUB_TOKEN` with the token as value and enable *Notebook access*.
-3. **Open a notebook.** File → Open notebook → GitHub tab → tick *Include private repos* → choose a notebook from this repo.
-4. Run the first cell. It mounts Google Drive, clones the repo and installs missing packages.
-
-Never paste the token into a notebook or commit it.
+1. Click an **Open in Colab** button above.
+2. Run the first cell. It mounts Google Drive, clones this repo and installs missing packages.
+   Allow Drive access when asked; processed data is stored there.
+3. Run the remaining cells in order.
 
 Preprocessing (`02_preprocess.ipynb`) needs no GPU; use a CPU runtime. Training will use a GPU runtime.
+
+If the repository is private, add a GitHub token with read access as `GITHUB_TOKEN` in Colab Secrets
+(key icon on the left, enable *Notebook access*). Never paste a token into a notebook or commit it.
 
 ## Running locally (macOS / Linux)
 
