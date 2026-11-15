@@ -1,24 +1,25 @@
-"""Where things live, on Colab and on a local machine.
+"""Dosyaların nerede durduğu: Colab'da ve kendi bilgisayarında.
 
-Two kinds of storage:
-  * DATA_DIR    - persistent, small: catalog.csv and the processed .npz arrays.
-                  Colab: Google Drive. Local: <repo>/data (or $TORNADO_DATA_DIR).
-  * SCRATCH_DIR - temporary, large: raw TorNet .tar.gz downloads.
-                  Colab: the VM disk (/content, wiped when the session ends).
-                  Local: <repo>/data/raw (or $TORNADO_SCRATCH_DIR).
+İki tür depolama var:
+  * DATA_DIR    - kalıcı, küçük: catalog.csv ve işlenmiş .npz dosyaları.
+                  Colab: Google Drive. Yerel: <repo>/data (ya da $TORNADO_DATA_DIR).
+  * SCRATCH_DIR - geçici, büyük: indirilen ham TorNet .tar.gz arşivleri.
+                  Colab: sanal makinenin diski (/content, oturum kapanınca silinir).
+                  Yerel: <repo>/data/raw (ya da $TORNADO_SCRATCH_DIR).
 
-On a Mac with the Google Drive app, point TORNADO_DATA_DIR at the synced
-folder, e.g. ~/Library/CloudStorage/GoogleDrive-<account>/My Drive/tornado-cnn/data,
-to use the same processed files that Colab wrote.
+Mac'te Google Drive uygulaması varsa, Colab'ın yazdığı işlenmiş dosyaları kullanmak için
+TORNADO_DATA_DIR'i eşitlenen klasöre yönlendir, örneğin:
+~/Library/CloudStorage/GoogleDrive-<hesap>/My Drive/tornado-cnn/data
 """
 import json
 import os
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[1]   # bu dosyanın iki üst klasörü = repo kökü
 
 
 def in_colab() -> bool:
+    """Kod Google Colab'da mı çalışıyor?"""
     try:
         import google.colab  # noqa: F401
         return True
@@ -27,11 +28,13 @@ def in_colab() -> bool:
 
 
 def load_config(name: str = "data.json") -> dict:
+    """configs/ klasöründeki ayar dosyasını okur."""
     with open(REPO_ROOT / "configs" / name) as f:
         return json.load(f)
 
 
 def _resolve(env_var: str, colab_default: str, local_default: Path) -> Path:
+    """Klasörü seçer: önce ortam değişkeni, yoksa Colab ya da yerel varsayılan. Klasör yoksa oluşturur."""
     if os.environ.get(env_var):
         path = Path(os.environ[env_var]).expanduser()
     elif in_colab():
@@ -43,15 +46,18 @@ def _resolve(env_var: str, colab_default: str, local_default: Path) -> Path:
 
 
 def data_dir() -> Path:
+    """Kalıcı veri klasörü (katalog ve işlenmiş veri)."""
     sub = load_config()["drive_subdir"]
     return _resolve("TORNADO_DATA_DIR", f"/content/drive/MyDrive/{sub}/data", REPO_ROOT / "data")
 
 
 def scratch_dir() -> Path:
+    """Geçici klasör (ham arşivler)."""
     return _resolve("TORNADO_SCRATCH_DIR", "/content/tornet_raw", REPO_ROOT / "data" / "raw")
 
 
 def processed_dir() -> Path:
+    """İşlenmiş .npz dosyalarının klasörü."""
     path = data_dir() / "processed"
     path.mkdir(parents=True, exist_ok=True)
     return path

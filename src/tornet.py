@@ -1,18 +1,18 @@
-"""TorNet: download, catalog, reading single samples and preprocessing.
+"""TorNet: indirme, katalog, tek örnek okuma ve ön işleme.
 
-Facts about the dataset (checked against the v1.1 files):
-  * One sample = one NetCDF (.nc) file.
-  * Each radar variable has shape (time=4, azimuth=120, range=240, sweep=2):
-    4 frames 5 minutes apart, 60 degrees x 60 km at 0.5 deg / 250 m resolution,
-    sweeps at 0.5 and 0.9 degrees elevation.
-  * Missing measurements are NaN.
-  * `frame_labels` gives a label per frame; the sample label is the LAST frame,
-    which is 1 exactly when category == "TOR".
-  * catalog.csv lists all 203,133 samples of all years.
+Veri seti hakkında bilgiler (v1.1 dosyalarından kontrol edildi):
+  * Bir örnek = bir NetCDF (.nc) dosyası.
+  * Her radar değişkeninin boyutu (time=4, azimuth=120, range=240, sweep=2):
+    5 dakika arayla 4 zaman adımı; 0,5 derece / 250 m çözünürlükte 60 derece x 60 km'lik pencere;
+    0,5 ve 0,9 derecelik iki tarama açısı.
+  * Ölçüm yapılamayan pikseller NaN.
+  * `frame_labels` her kare için bir etiket verir. Örneğin etiketi SON karenin etiketidir,
+    ve bu tam olarak category == "TOR" olduğunda 1'dir.
+  * catalog.csv tüm yıllardaki 203.133 örneğin listesidir.
 
-Source: Veillette et al. (2025), "A Benchmark Dataset for Tornado Detection and
+Kaynak: Veillette ve ark. (2025), "A Benchmark Dataset for Tornado Detection and
 Prediction using Full-Resolution Polarimetric Weather Radar Data",
-AIES 4(1). Data: Zenodo, CC BY 4.0.
+AIES 4(1). Veri: Zenodo, CC BY 4.0.
 """
 import io
 import shutil
@@ -24,17 +24,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# Zenodo record of each year (dataset version 1.1). The 2013 record also has catalog.csv.
+# Her yılın Zenodo kayıt numarası (veri seti sürüm 1.1). 2013 kaydında catalog.csv de var.
 ZENODO_RECORDS = {
     2013: 12636522, 2014: 12637032, 2015: 12655151, 2016: 12655179, 2017: 12655183,
     2018: 12655187, 2019: 12655716, 2020: 12655717, 2021: 12655718, 2022: 12655719,
 }
 
-# Fixed physical ranges used for scaling (from the TorNet reference code).
-# Fixed ranges, not statistics of our data, so no information leaks from test to train.
+# Ölçekleme için sabit fiziksel aralıklar (TorNet'in referans kodundan).
+# Verimizin istatistikleri değil sabit aralıklar kullanıldığı için test kümesinden eğitime bilgi sızmaz.
 CHANNEL_RANGES = {
-    "DBZ": (-20.0, 60.0),    # reflectivity, dBZ
-    "VEL": (-60.0, 60.0),    # radial velocity, m/s
+    "DBZ": (-20.0, 60.0),    # yansıtıcılık, dBZ
+    "VEL": (-60.0, 60.0),    # radyal hız, m/s
     "KDP": (-2.0, 5.0),
     "RHOHV": (0.2, 1.04),
     "ZDR": (-1.0, 8.0),
@@ -42,35 +42,40 @@ CHANNEL_RANGES = {
 }
 
 CATEGORY_NAMES = {
-    "TOR": "confirmed tornado",
-    "WRN": "tornado warning, no tornado",
-    "NUL": "random storm, no tornado",
+    "TOR": "doğrulanmış tornado",
+    "WRN": "tornado uyarısı verilmiş, tornado yok",
+    "NUL": "rastgele fırtına, tornado yok",
 }
 
 
 def file_url(year: int, filename: str) -> str:
+    """Zenodo'daki bir dosyanın indirme adresi."""
     return f"https://zenodo.org/records/{ZENODO_RECORDS[year]}/files/{filename}?download=1"
 
 
 def tar_url(year: int) -> str:
+    """Bir yılın arşivinin (tornet_<yıl>.tar.gz) indirme adresi."""
     return file_url(year, f"tornet_{year}.tar.gz")
 
 
 def download(url: str, dest: Path) -> Path:
-    """Download with resume support (curl -C -). Skips if the file is already complete."""
+    """Dosyayı indirir. Yarım kalan indirme kaldığı yerden devam eder (curl -C -).
+
+    Dosya zaten tamamen inmişse tekrar indirmez.
+    """
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if shutil.which("curl"):
         subprocess.run(["curl", "-L", "-C", "-", "--fail", "--retry", "5", "-o", str(dest), url], check=True)
-    else:  # fallback without resume
+    else:  # curl yoksa: devam etme desteği olmadan indir
         urllib.request.urlretrieve(url, dest)
     return dest
 
 
-# ---------------------------------------------------------------- catalog
+# ---------------------------------------------------------------- katalog
 
 def load_catalog(path) -> pd.DataFrame:
-    """Read catalog.csv and add `year` and the binary `label` (TOR=1, WRN/NUL=0)."""
+    """catalog.csv'yi okur, `year` (yıl) ve ikili `label` (TOR=1, WRN/NUL=0) sütunlarını ekler."""
     cat = pd.read_csv(path, parse_dates=["start_time", "end_time"])
     cat["year"] = cat["start_time"].dt.year
     cat["label"] = (cat["category"] == "TOR").astype(np.uint8)
@@ -78,16 +83,17 @@ def load_catalog(path) -> pd.DataFrame:
 
 
 def get_catalog(data_dir) -> pd.DataFrame:
+    """Katalog klasörde yoksa önce indirir, sonra okur."""
     path = Path(data_dir) / "catalog.csv"
     if not path.exists():
         download(file_url(2013, "catalog.csv"), path)
     return load_catalog(path)
 
 
-# ---------------------------------------------------------------- one sample
+# ---------------------------------------------------------------- tek örnek
 
 def open_sample(source):
-    """Open one .nc sample from a path or from raw bytes."""
+    """Bir .nc örneğini dosya yolundan ya da ham baytlardan açar (xarray Dataset döner)."""
     import xarray as xr
     if isinstance(source, (bytes, bytearray)):
         source = io.BytesIO(source)
@@ -95,30 +101,30 @@ def open_sample(source):
 
 
 def to_uint8(x: np.ndarray, lo: float, hi: float) -> np.ndarray:
-    """Scale physical values to 1..255 and keep 0 for 'missing' (NaN).
+    """Fiziksel değerleri 1..255 aralığına ölçekler; 0'ı 'boş piksel' (NaN) için ayırır.
 
-    1 byte per pixel instead of 4 makes the processed data 4x smaller.
-    Resolution: 80 dBZ / 254 steps = 0.31 dBZ, 120 m/s / 254 = 0.47 m/s.
+    Piksel başına 4 bayt yerine 1 bayt kullanmak işlenmiş veriyi 4 kat küçültür.
+    Kaybedilen hassasiyet: 80 dBZ / 254 adım = 0,31 dBZ; 120 m/s / 254 = 0,47 m/s.
     """
     out = np.zeros(x.shape, dtype=np.uint8)
-    ok = np.isfinite(x)
-    scaled = (np.clip(x[ok], lo, hi) - lo) / (hi - lo)
+    ok = np.isfinite(x)                                   # NaN olmayan pikseller
+    scaled = (np.clip(x[ok], lo, hi) - lo) / (hi - lo)    # aralık dışını kırp, 0..1'e ölçekle
     out[ok] = np.round(scaled * 254).astype(np.uint8) + 1
     return out
 
 
 def from_uint8(q: np.ndarray, variables) -> np.ndarray:
-    """Turn stored bytes back into network input in [-1, 1].
+    """Saklanan baytları [-1, 1] aralığında ağ girdisine geri çevirir.
 
-    Missing pixels (0) are filled with a physically sensible value instead of
-    blindly using 0 after scaling:
-      * DBZ: -1 (= the lowest reflectivity, i.e. "no echo")
-      * VEL:  0 (= zero radial velocity)
+    Boş pikseller (0), ölçeklemeden sonra körü körüne 0 yapılmak yerine
+    fiziksel olarak anlamlı bir değerle doldurulur:
+      * DBZ: -1 (= en düşük yansıtıcılık, yani "yankı yok")
+      * VEL:  0 (= sıfır radyal hız, yani "hareket yok")
     """
     x = (q.astype(np.float32) - 1.0) / 254.0 * 2.0 - 1.0   # 1..255 -> -1..1
     missing = q == 0
     fill_values = {"DBZ": -1.0, "VEL": 0.0}
-    ch_axis = -3  # (..., C, H, W)
+    ch_axis = -3  # boyut sırası (..., kanal, yükseklik, genişlik)
     for i, v in enumerate(variables):
         sl = [slice(None)] * x.ndim
         sl[ch_axis] = i
@@ -128,20 +134,20 @@ def from_uint8(q: np.ndarray, variables) -> np.ndarray:
 
 
 def preprocess_sample(ds, variables=("DBZ", "VEL"), sweep=0, frame=-1) -> np.ndarray:
-    """Pick channels, sweep and frame -> uint8 array of shape (C, 120, 240)."""
+    """Kanalları, tarama açısını ve zaman adımını seçer -> (C, 120, 240) boyutunda uint8 dizi."""
     chans = []
     for v in variables:
         lo, hi = CHANNEL_RANGES[v]
-        arr = ds[v].values[frame, :, :, sweep]  # (azimuth, range)
+        arr = ds[v].values[frame, :, :, sweep]  # (açı, mesafe)
         chans.append(to_uint8(arr, lo, hi))
     return np.stack(chans)
 
 
 def preprocess_bytes(raw: bytes, variables=("DBZ", "VEL"), sweep=0, frame=-1):
-    """Same result as preprocess_sample(open_sample(raw)), ~10x faster.
+    """preprocess_sample(open_sample(raw)) ile aynı sonucu verir, yaklaşık 10 kat daha hızlı.
 
-    Reads only the needed slices with h5py instead of loading the whole file
-    with xarray. Used for processing whole years. Returns (uint8 array, label).
+    Dosyanın tamamını xarray ile yüklemek yerine h5py ile sadece gereken dilimleri okur.
+    Bütün bir yılı işlerken kullanılır. Döner: (uint8 dizi, etiket).
     """
     import h5py
     with h5py.File(io.BytesIO(raw), "r") as h:
@@ -149,7 +155,7 @@ def preprocess_bytes(raw: bytes, variables=("DBZ", "VEL"), sweep=0, frame=-1):
         for v in variables:
             d = h[v]
             arr = d[frame, :, :, sweep].astype(np.float32)
-            fill = d.attrs.get("_FillValue")
+            fill = d.attrs.get("_FillValue")         # dosyada boş pikseli işaretleyen değer (-999)
             if fill is not None:
                 arr[arr == fill[0]] = np.nan
             chans.append(to_uint8(arr, *CHANNEL_RANGES[v]))
@@ -157,10 +163,13 @@ def preprocess_bytes(raw: bytes, variables=("DBZ", "VEL"), sweep=0, frame=-1):
     return np.stack(chans), label
 
 
-# ---------------------------------------------------------------- whole year
+# ---------------------------------------------------------------- bütün bir yıl
 
 def iter_tar_samples(tar_path_or_url):
-    """Yield (relative_name, bytes) for every .nc in a TorNet tar.gz, without extracting to disk."""
+    """Bir TorNet tar.gz arşivindeki her .nc için (dosya_adı, baytlar) üretir.
+
+    Arşiv diske açılmaz; dosyalar sırayla bellekte okunur.
+    """
     src = str(tar_path_or_url)
     fileobj = urllib.request.urlopen(src) if src.startswith("http") else open(src, "rb")
     with fileobj, tarfile.open(fileobj=fileobj, mode="r|gz") as tar:
@@ -170,16 +179,16 @@ def iter_tar_samples(tar_path_or_url):
 
 
 def sample_from_tar(tar_path_or_url, per_category=None, max_files=5000):
-    """Grab a few samples of each category by reading the start of an archive.
+    """Arşivin başını okuyarak her kategoriden birkaç örnek alır.
 
-    Reading stops as soon as enough samples are found, so only a small part of
-    a 15 GB archive is downloaded. Returns {filename: xarray.Dataset}.
+    Yeterli örnek bulunur bulunmaz okuma durur; böylece 15 GB'lık arşivin
+    sadece küçük bir kısmı indirilir. Döner: {dosya_adı: xarray.Dataset}.
     """
     import os
     per_category = per_category or {"TOR": 2, "WRN": 1, "NUL": 1}
     found, counts = {}, {k: 0 for k in per_category}
     for i, (name, raw) in enumerate(iter_tar_samples(tar_path_or_url)):
-        cat = os.path.basename(name)[:3]
+        cat = os.path.basename(name)[:3]   # dosya adının ilk 3 harfi kategoriyi verir
         if counts.get(cat, 0) < per_category.get(cat, 0):
             found[name] = open_sample(raw)
             counts[cat] += 1
@@ -190,21 +199,21 @@ def sample_from_tar(tar_path_or_url, per_category=None, max_files=5000):
 
 def process_year(year, tar_path_or_url, out_dir, variables=("DBZ", "VEL"), sweep=0, frame=-1,
                  catalog=None, progress=True) -> Path:
-    """Turn one year's archive into one compressed .npz with X, y and metadata.
+    """Bir yılın arşivini X, y ve dosya adlarını içeren tek bir sıkıştırılmış .npz dosyasına çevirir.
 
-    Output: <out_dir>/tornet_<year>.npz with
-      X        uint8 (N, C, 120, 240)   - see to_uint8 / from_uint8
+    Çıktı: <out_dir>/tornet_<yıl>.npz
+      X        uint8 (N, C, 120, 240)   - bkz. to_uint8 / from_uint8
       y        uint8 (N,)               - 1 = tornado
-      filename str   (N,)               - joins with catalog.csv for split/episode/EF info
+      filename str   (N,)               - catalog.csv ile eşleştirip bölme/fırtına/EF bilgisini almak için
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"tornet_{year}.npz"
     if out_path.exists():
-        print(f"{out_path.name} already exists, skipping.")
+        print(f"{out_path.name} zaten var, atlanıyor.")
         return out_path
 
-    expected = None
+    expected = None                       # ilerleme çubuğu için beklenen dosya sayısı
     if catalog is not None:
         expected = int((catalog["year"] == year).sum())
 
@@ -212,7 +221,7 @@ def process_year(year, tar_path_or_url, out_dir, variables=("DBZ", "VEL"), sweep
     it = iter_tar_samples(tar_path_or_url)
     if progress:
         from tqdm.auto import tqdm
-        it = tqdm(it, total=expected, desc=f"TorNet {year}", unit="file")
+        it = tqdm(it, total=expected, desc=f"TorNet {year}", unit="dosya")
     for name, raw in it:
         x, label = preprocess_bytes(raw, variables, sweep, frame)
         X.append(x)
@@ -224,7 +233,7 @@ def process_year(year, tar_path_or_url, out_dir, variables=("DBZ", "VEL"), sweep
     names = np.asarray(names)
     tmp = out_path.with_name(out_path.stem + ".partial.npz")
     np.savez_compressed(tmp, X=X, y=y, filename=names, variables=np.asarray(variables))
-    tmp.rename(out_path)  # only a finished file gets the final name
-    print(f"Saved {out_path} | {len(y)} samples, {int(y.sum())} tornado | "
+    tmp.rename(out_path)  # son adı sadece tamamlanmış dosya alır (yarım dosya "bitti" sanılmasın)
+    print(f"Kaydedildi: {out_path} | {len(y)} örnek, {int(y.sum())} tornado | "
           f"{out_path.stat().st_size / 1e9:.2f} GB")
     return out_path
