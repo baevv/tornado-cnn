@@ -10,9 +10,9 @@ azaltmak için önce 3x3 medyan filtresi uygulanır.
 
 Her değişken için tek bir özet ölçü; ölçüler fiziksel anlamlarına göre seçilmiştir:
   * DBZ   : 99. yüzdelik (en yüksek yansıtıcılık)   - güçlü fırtınalarda yüksek
-  * VEL   : dönme gücü (küçük bir pencerede en büyük hız farkı) - tornado = hız çifti
+  * VEL   : dönme gücü (küçük bir pencerede en büyük hız farkı) - hortum = hız çifti
   * KDP   : 99. yüzdelik                            - yoğun yağış/dolu
-  * RHOHV : 1. yüzdelik (en düşük değerler)         - tornado enkazı düşük RHOHV verir
+  * RHOHV : 1. yüzdelik (en düşük değerler)         - hortum enkazı düşük RHOHV verir
   * ZDR   : 1. yüzdelik (en düşük değerler)         - enkaz ZDR'yi 0'a yaklaştırır
   * WIDTH : 99. yüzdelik                            - türbülans/dönme genişliği artırır
 """
@@ -52,7 +52,7 @@ def denoise(arr: np.ndarray) -> np.ndarray:
 def rotation_map(vel: np.ndarray) -> np.ndarray:
     """Her piksel çevresinde (5 açı x 3 mesafe hücresi) en büyük ile en küçük hız arasındaki fark (m/s).
 
-    Tornado radarda yan yana duran yaklaşan (-) ve uzaklaşan (+) rüzgar olarak
+    Hortum radarda yan yana duran yaklaşan (-) ve uzaklaşan (+) rüzgar olarak
     görünür (hız çifti); bu fark ne kadar büyükse dönme o kadar güçlüdür.
     vel: (azimuth, range).
     """
@@ -189,9 +189,9 @@ def scan_archive(tar_path_or_url, catalog: pd.DataFrame, n_files=1500, keep_raw=
 
 
 def separability(df: pd.DataFrame, columns, negative=("WRN", "NUL")):
-    """Her ölçünün tornadoyu ne kadar ayırt ettiği: AUC (0,5 = tahminden farksız, 1 = mükemmel).
+    """Her ölçünün hortumu ne kadar ayırt ettiği: AUC (0,5 = tahminden farksız, 1 = mükemmel).
 
-    AUC < 0,5 ise ölçü ters yönde ayırt ediyor demektir (tornadoda daha DÜŞÜK);
+    AUC < 0,5 ise ölçü ters yönde ayırt ediyor demektir (hortumda daha DÜŞÜK);
     o yüzden 'ayırt etme gücü' = max(AUC, 1 - AUC) de verilir.
     """
     from sklearn.metrics import roc_auc_score

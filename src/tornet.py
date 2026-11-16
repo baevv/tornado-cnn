@@ -42,9 +42,9 @@ CHANNEL_RANGES = {
 }                            # 0–9 piksellerin %1'ini kırpıyordu, 0–16 ise %99,9'unu kapsıyor.
 
 CATEGORY_NAMES = {
-    "TOR": "doğrulanmış tornado",
-    "WRN": "tornado uyarısı verilmiş, tornado yok",
-    "NUL": "rastgele fırtına, tornado yok",
+    "TOR": "doğrulanmış hortum",
+    "WRN": "hortum uyarısı verilmiş, hortum yok",
+    "NUL": "rastgele fırtına, hortum yok",
 }
 
 
@@ -204,7 +204,7 @@ def process_year(year, tar_path_or_url, out_dir, variables=("DBZ", "VEL"), sweep
 
     Çıktı: <out_dir>/tornet_<yıl>.npz
       X        uint8 (N, C, 120, 240)   - bkz. to_uint8 / from_uint8
-      y        uint8 (N,)               - 1 = tornado
+      y        uint8 (N,)               - 1 = hortum
       filename str   (N,)               - catalog.csv ile eşleştirip bölme/fırtına/EF bilgisini almak için
     """
     out_dir = Path(out_dir)
@@ -235,6 +235,6 @@ def process_year(year, tar_path_or_url, out_dir, variables=("DBZ", "VEL"), sweep
     tmp = out_path.with_name(out_path.stem + ".partial.npz")
     np.savez_compressed(tmp, X=X, y=y, filename=names, variables=np.asarray(variables))
     tmp.rename(out_path)  # son adı sadece tamamlanmış dosya alır (yarım dosya "bitti" sanılmasın)
-    print(f"Kaydedildi: {out_path} | {len(y)} örnek, {int(y.sum())} tornado | "
+    print(f"Kaydedildi: {out_path} | {len(y)} örnek, {int(y.sum())} hortum | "
           f"{out_path.stat().st_size / 1e9:.2f} GB")
     return out_path
