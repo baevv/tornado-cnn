@@ -58,18 +58,51 @@ def tar_url(year: int) -> str:
     return file_url(year, f"tornet_{year}.tar.gz")
 
 
-def download(url: str, dest: Path) -> Path:
-    """Dosyayı indirir. Yarım kalan indirme kaldığı yerden devam eder (curl -C -).
+def remote_size(year: int, filename: str):
+    """Zenodo'daki dosyanın bayt cinsinden boyutu (indirmenin tamamlandığını kontrol etmek için)."""
+    import json
+    try:
+        with urllib.request.urlopen(f"https://zenodo.org/api/records/{ZENODO_RECORDS[year]}", timeout=30) as r:
+            files = json.load(r)["files"]
+        return next(f["size"] for f in files if f["key"] == filename)
+    except Exception:
+        return None                       # boyut alınamazsa kontrol atlanır
 
-    Dosya zaten tamamen inmişse tekrar indirmez.
+
+def download(url: str, dest: Path, expected_size=None, max_attempts=30) -> Path:
+    """Dosyayı indirir; bağlantı koparsa kaldığı yerden devam ederek tekrar dener.
+
+    Büyük dosyalarda sunucu bağlantıyı yarıda kesebilir (curl hata kodu 18). Her denemede
+    curl -C - ile inmiş kısım korunur ve sadece kalan kısım indirilir. expected_size
+    verilirse dosya o boyuta ulaşana kadar denemeye devam eder; dosya zaten tamsa hiç indirmez.
     """
+    import time
+
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if shutil.which("curl"):
-        subprocess.run(["curl", "-L", "-C", "-", "--fail", "--retry", "5", "-o", str(dest), url], check=True)
-    else:  # curl yoksa: devam etme desteği olmadan indir
+
+    def done():
+        return expected_size is not None and dest.exists() and dest.stat().st_size == expected_size
+
+    if done():
+        print(f"  {dest.name} zaten tamamen inmiş.")
+        return dest
+    if not shutil.which("curl"):          # curl yoksa: devam etme desteği olmadan indir
         urllib.request.urlretrieve(url, dest)
-    return dest
+        return dest
+
+    for attempt in range(1, max_attempts + 1):
+        res = subprocess.run(["curl", "-L", "-sS", "-C", "-", "--fail", "--retry", "5", "--retry-delay", "5",
+                              "--connect-timeout", "30", "-o", str(dest), url])
+        have = dest.stat().st_size / 1e9 if dest.exists() else 0.0
+        if done() or (expected_size is None and res.returncode == 0):
+            print(f"  indirme tamam: {have:.2f} GB")
+            return dest
+        total = f" / {expected_size / 1e9:.2f}" if expected_size else ""
+        print(f"  bağlantı kesildi (deneme {attempt}, curl kodu {res.returncode}); "
+              f"inen: {have:.2f}{total} GB. Kaldığı yerden devam ediliyor...")
+        time.sleep(5)
+    raise RuntimeError(f"{dest.name} {max_attempts} denemede indirilemedi. Hücreyi tekrar çalıştırınca kaldığı yerden devam eder.")
 
 
 # ---------------------------------------------------------------- katalog
