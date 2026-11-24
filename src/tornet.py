@@ -30,7 +30,7 @@ ZENODO_RECORDS = {
     2018: 12655187, 2019: 12655716, 2020: 12655717, 2021: 12655718, 2022: 12655719,
 }
 
-# Ölçekleme için sabit fiziksel aralıklar (TorNet'in referans kodundan; WIDTH bizim EDA'mıza göre).
+# Ölçekleme için sabit fiziksel aralıklar (TorNet'in referans kodundan; WIDTH aralığı EDA'ya göre).
 # Verimizin istatistikleri değil sabit aralıklar kullanıldığı için test kümesinden eğitime bilgi sızmaz.
 CHANNEL_RANGES = {
     "DBZ": (-20.0, 60.0),    # yansıtıcılık, dBZ
@@ -38,8 +38,8 @@ CHANNEL_RANGES = {
     "KDP": (-2.0, 5.0),
     "RHOHV": (0.2, 1.04),
     "ZDR": (-1.0, 8.0),
-    "WIDTH": (0.0, 16.0),    # hız dağınıklığı (spectrum width), m/s. MIT 0–9 kullanıyor; bizim EDA'mızda
-}                            # 0–9 piksellerin %1'ini kırpıyordu, 0–16 ise %99,9'unu kapsıyor.
+    "WIDTH": (0.0, 16.0),    # hız dağınıklığı (spectrum width), m/s. Üst sınır EDA'ya göre seçildi:
+}                            # 0–16 piksellerin %99,9'unu kapsıyor (01 · D2).
 
 CATEGORY_NAMES = {
     "TOR": "doğrulanmış hortum",
