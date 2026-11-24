@@ -27,6 +27,7 @@ The data is **not** stored in this repository. The notebooks download it from Ze
 |---|---|---|
 | `01_explore_data` | EDA: metadata vs. radar data, class balance, radar images, which variables/sweep/frame to use | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/01_explore_data.ipynb) |
 | `02_preprocess` | Preprocessing demo on one sample, all selected years saved to Google Drive, train/validation/test split with leakage checks | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/02_preprocess.ipynb) |
+| `03_train_baseline` | Data loader, our CNN, training with early stopping, learning curves, validation metrics (GPU) | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/03_train_baseline.ipynb) |
 
 ## Project structure
 
@@ -34,14 +35,18 @@ The data is **not** stored in this repository. The notebooks download it from Ze
 notebooks/
   01_explore_data.ipynb   EDA: data structure, catalog, radar images, evidence for preprocessing choices
   02_preprocess.ipynb     preprocessing demo, process selected years to Drive, train/val/test split
+  03_train_baseline.ipynb data loader, CNN, training, learning curves, validation results
 src/
   paths.py                storage locations on Colab / locally
   tornet.py               download, catalog, reading and preprocessing samples
   eda.py                  raw-data analysis: per-variable measures, rotation strength, separability (AUC)
   data.py                 train/val/test split by storm episode and its checks
+  model.py                the CNN
+  train.py                data loading, DataLoader, loss weights, training loop, metrics
   viz.py                  radar plots
 configs/
   data.json               years, channels, sweep, frame
+  train.json              training settings (optimizer, learning rate, dropout, ...)
 results/                  figures and metric tables
 ```
 
@@ -78,12 +83,14 @@ export TORNADO_DATA_DIR="$HOME/Library/CloudStorage/GoogleDrive-<account>/My Dri
 ## Roadmap
 
 - [x] 01 · Data exploration (EDA)
-- [ ] 02 · Preprocessing and train/validation/test split by storm episode (ready to run)
-- [ ] 03 · Data loader and CNN baseline with class-weighted loss
-- [ ] 04 · Optimizer comparison (SGD, Momentum, RMSProp, Adam) and loss weighting
-- [ ] 05 · Regularization (Dropout, L2), learning curve, channel ablation
-- [ ] 06 · Evaluation on the test split (ROC-AUC, PR-AUC, F1, confusion matrix)
-- [ ] 07 · Grad-CAM explanations
+- [x] 02 · Preprocessing and train/validation/test split by storm episode
+- [ ] 03 · Data loader and CNN baseline with class-weighted loss (ready to run)
+- [ ] 04 · Hyperparameter comparison (optimizer, learning rate, batch size, Dropout, L2, loss weighting) and input variants
+- [ ] 05 · Model comparison: our CNN vs. transfer learning (ResNet-18)
+- [ ] 06 · Evaluation on the test split (accuracy, F1, ROC-AUC, PR-AUC, confusion matrix)
+- [ ] 07 · Explainability (Grad-CAM)
+- [ ] 08 · Interface to test the model on new samples
+- [ ] Report (PDF)
 
 ## Citation and license
 

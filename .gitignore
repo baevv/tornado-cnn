@@ -6,7 +6,8 @@ data/
 *.npy
 catalog.csv
 
-# Model checkpoints
+# Model checkpoints and training outputs (kept on Google Drive)
+models/
 checkpoints/
 *.pt
 *.pth

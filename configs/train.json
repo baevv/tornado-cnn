@@ -1,0 +1,12 @@
+{
+    "batch_size": 64,
+    "optimizer": "adam",
+    "lr": 0.001,
+    "weight_decay": 0.0,
+    "epochs": 20,
+    "patience": 4,
+    "dropout": 0.3,
+    "weighting": "pos_weight",
+    "seed": 42,
+    "num_workers": 2
+}

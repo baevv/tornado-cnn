@@ -61,3 +61,13 @@ def processed_dir() -> Path:
     path = data_dir() / "processed"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def models_dir(name: str) -> Path:
+    """Eğitilen bir modelin kalıcı klasörü: <proje>/models/<name> (Colab'da Drive).
+
+    Veri klasörünün (data/) yanında durur; ağırlıklar, eğitim geçmişi ve sonuçlar buraya yazılır.
+    """
+    path = data_dir().parent / "models" / name
+    path.mkdir(parents=True, exist_ok=True)
+    return path
