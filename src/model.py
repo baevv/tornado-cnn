@@ -46,7 +46,7 @@ def count_params(model) -> int:
 
 
 def layer_table(model, input_shape=(3, 120, 240)):
-    """Her katmanın çıktı boyutu ve parametre sayısı (PyTorch'tan) + 6. haftadaki formülle elle hesap.
+    """Her katmanın çıktı boyutu ve parametre sayısı (PyTorch'tan) + formülle elle hesap.
 
     Formül: evrişim = filtre_yüksekliği × filtre_genişliği × giriş_kanalı × filtre_sayısı + filtre_sayısı (bias)
             tam bağlı = giriş × çıkış + çıkış (bias)
