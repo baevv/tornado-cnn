@@ -40,6 +40,10 @@ if models and ss.get("sel_model") not in {m.key for m in models}:
     ss.sel_model = models[0].key
 ss.setdefault("sel_model", None)
 gezgin.defaults(ss)
+# splits.csv yoksa veride "val" bölümü olmaz (yalnız katalogdaki train/test); değerlendirme sekmeleri test ile açılsın
+if store is not None and not (store.samples["split"] == "val").any():
+    for k in ("oz_split", "ks_split", "ht_split"):
+        ss.setdefault(k, "test")
 for mod in (ozet, kars, hata):
     mod.defaults(ss, models)
 

@@ -39,8 +39,9 @@ def kpis(m: dict | None) -> list:
 
 
 def no_scores_note(split: str) -> str:
-    return (f"<div class='note'>Bu bölüm ({split}) için skor yok. "
-            "<code>python scripts/make_preds.py</code> ile modellerin skorlarını hesapla.</div>")
+    return (f"<div class='note'>Bu bölüm ({split}) için skor yok. Ya veride bu bölüm yok "
+            "(<code>val</code> için veri klasöründe <code>splits.csv</code> gerekir) ya da skorlar hesaplanmamış: "
+            "<code>python scripts/make_preds.py</code>.</div>")
 
 
 def history_df(info) -> pd.DataFrame:
