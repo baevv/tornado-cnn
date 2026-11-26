@@ -78,8 +78,8 @@ THEME = {
         "panel_border_lw": 1.0,
         "grid_world_lw": 0.6,
         "grid_world_alpha": 0.55,
-        "cbar_fraction": 0.030,
-        "cbar_pad": 0.018,
+        "cbar_fraction": 0.032,
+        "cbar_pad": 0.032,
         "cbar_shrink": 0.72,
         "cbar_aspect": 26,
     },
@@ -364,17 +364,18 @@ class EpisodeViewer:
         }
         self.filter_names = list(self.filters.keys())
         self.active_filter = self.filter_names[1]  # Açılışta doğrudan hortumlu fırtınalarla başla
+        if not self.filters[self.active_filter]:
+            self.active_filter = self.filter_names[0]
         self.ep_pos = 0
         self.frame_idx = 0
         self.playing = False
+        self._suppress_radio = False
         self.rng = np.random.default_rng()
 
         # Her kanal için NaN rengini ayıran colormap kopyaları
         self.cmaps = {}
         for v in self.ds.variables:
-            cm = plt.get_cmap(CMAPS[v]).copy()
-            cm.set_bad(C["nan"])
-            self.cmaps[v] = cm
+            self.cmaps[v] = plt.get_cmap(CMAPS[v]).with_extremes(bad=C["nan"])
 
         # Ana GridSpec düzeni: sol kenar çubuğu + sağda (üst başlık, 2x3 grafikler, zaman çizelgesi + kontrol şeridi)
         self.fig = plt.figure(figsize=L["figsize"], facecolor=C["bg_fig"])
@@ -382,14 +383,14 @@ class EpisodeViewer:
 
         gs_root = self.fig.add_gridspec(
             3, 2,
-            width_ratios=[0.22, 0.78],
-            height_ratios=[0.115, 0.695, 0.190],
+            width_ratios=[0.21, 0.79],
+            height_ratios=[0.115, 0.690, 0.195],
             left=0.018, right=0.982, top=0.955, bottom=0.025,
-            wspace=0.080, hspace=0.205,
+            wspace=0.135, hspace=0.220,
         )
 
         # --- Üst başlık bölgesi ---
-        ax_header = self.fig.add_axes(gs_root[0, 1].get_position(self.fig))
+        ax_header = self.fig.add_subplot(gs_root[0, 1])
         ax_header.set_axis_off()
         self.ax_header = ax_header
         self.status_badge = ax_header.text(
@@ -443,7 +444,7 @@ class EpisodeViewer:
 
         # --- Orta alan: 2x3 grafikler (üst: CNN matrisi, alt: Gerçek dünya kutupsal görünüm) ---
         gs_plots = gs_root[1, 1].subgridspec(
-            2, 3, height_ratios=[1.0, 1.06], wspace=0.22, hspace=0.24
+            2, 3, height_ratios=[1.0, 1.06], wspace=0.34, hspace=0.25
         )
         self.axes_cnn = np.array([self.fig.add_subplot(gs_plots[0, c]) for c in range(3)])
         self.axes_world = np.array([self.fig.add_subplot(gs_plots[1, c]) for c in range(3)])
@@ -471,7 +472,7 @@ class EpisodeViewer:
                 fraction=L["cbar_fraction"], pad=L["cbar_pad"],
                 shrink=L["cbar_shrink"], aspect=L["cbar_aspect"],
             )
-            cbar.ax.set_title(unit, fontsize=FS["axis_label"], pad=5, color=C["text_muted"])
+            cbar.ax.set_title(unit, loc="left", x=0.0, fontsize=FS["axis_label"], pad=6, color=C["text_muted"])
             cbar.ax.tick_params(labelsize=FS["tick"], length=2.5)
             cbar.locator = MaxNLocator(5)
             cbar.update_ticks()
@@ -550,6 +551,7 @@ class EpisodeViewer:
         self.fig.canvas.mpl_connect("key_press_event", self.on_key)
         self.fig.canvas.mpl_connect("button_press_event", self.on_click)
         self.fig.canvas.mpl_connect("motion_notify_event", self.on_motion)
+        self.fig.canvas.mpl_connect("close_event", lambda _: self.stop_play())
 
         self.timer = self.fig.canvas.new_timer(interval=500)
         self.timer.add_callback(self._on_tick)
@@ -560,8 +562,10 @@ class EpisodeViewer:
     def current_pool(self) -> list[int]:
         return self.filters[self.active_filter]
 
-    def current_episode(self) -> dict:
+    def current_episode(self) -> dict | None:
         pool = self.current_pool()
+        if not pool:
+            return None
         self.ep_pos %= len(pool)
         return self.ds.episodes[pool[self.ep_pos]]
 
@@ -569,9 +573,13 @@ class EpisodeViewer:
         ax = self.ax_timeline
         C = THEME["colors"]
         FS = THEME["font_sizes"]
+        L = THEME["layout"]
         ax.clear()
         ax.set_facecolor(C["bg_panel"])
         ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_edgecolor(C["border"])
+            spine.set_linewidth(L["panel_border_lw"])
 
         frames = ep["frames"]
         n = len(frames)
@@ -685,11 +693,15 @@ class EpisodeViewer:
     def _draw_radar_marker(self, ax, x_min: float, x_max: float, y_min: float, y_max: float):
         """Radar konumu (0, 0) görünür alandaysa işaretler; dışarıdaysa yönünü gösterir."""
         C = THEME["colors"]
+        ax.apply_aspect()
         xlim = ax.get_xlim()
         ylim = ax.get_ylim()
         if xlim[0] <= 0.0 <= xlim[1] and ylim[0] <= 0.0 <= ylim[1]:
             ax.scatter([0.0], [0.0], s=36, c=C["warn"], marker="^", edgecolors="#ffffff", linewidths=0.8, zorder=6)
-            ax.text(0.0, 0.0, " Radar", fontsize=7.5, color=C["warn"], fontweight="bold", va="center", ha="left", zorder=6)
+            near_right = 0.0 > xlim[0] + 0.80 * (xlim[1] - xlim[0])
+            ha = "right" if near_right else "left"
+            lbl = "Radar  " if near_right else "  Radar"
+            ax.text(0.0, 0.0, lbl, fontsize=7.5, color=C["warn"], fontweight="bold", va="center", ha=ha, zorder=6)
         else:
             cx, cy = 0.5 * (x_min + x_max), 0.5 * (y_min + y_max)
             ang = np.degrees(np.arctan2(-cy, -cx))
@@ -709,6 +721,21 @@ class EpisodeViewer:
         L = THEME["layout"]
 
         ep = self.current_episode()
+        if ep is None:
+            self.current_fr = None
+            self.current_q = None
+            self._clear_hover_markers()
+            self.status_badge.set_text("Seçili filtrede fırtına bulunamadı")
+            self.status_badge.set_color(C["text_muted"])
+            self.status_badge.get_bbox_patch().set(facecolor=C["bg_panel"], edgecolor=C["border"])
+            self.ep_title.set_text(f"{self.active_filter} — 0 fırtına")
+            self.file_title.set_text("")
+            self.cat_text.set_text("-")
+            self.stats_text.set_text("-")
+            self.cursor_text.set_text("-")
+            self.fig.canvas.draw_idle()
+            return
+
         frames = ep["frames"]
         self.frame_idx %= len(frames)
         fr = frames[self.frame_idx]
@@ -737,28 +764,33 @@ class EpisodeViewer:
         az0, az1 = fr["az_deg"]
         r0, r1 = fr["rng_km"]
         start_idx = max(0, int(np.ceil(-r0 / 0.25)))
-        r_pos_min = r0 + start_idx * 0.25
-        az_edges = np.deg2rad(np.linspace(az0, az1, 121))
-        rng_edges = np.linspace(r_pos_min, r1, 241 - start_idx)
-        A, R = np.meshgrid(az_edges, rng_edges, indexing="ij")
-        X_km, Y_km = R * np.sin(A), R * np.cos(A)
-        border_poly = sector_polygon_xy(az0, az1, r_pos_min, r1)
-        x_min, x_max = float(X_km.min()), float(X_km.max())
-        y_min, y_max = float(Y_km.min()), float(Y_km.max())
+        has_world = start_idx < 240 and r1 > 0.0
+        if has_world:
+            r_pos_min = r0 + start_idx * 0.25
+            az_edges = np.deg2rad(np.linspace(az0, az1, 121))
+            rng_edges = np.linspace(r_pos_min, r1, 241 - start_idx)
+            A, R = np.meshgrid(az_edges, rng_edges, indexing="ij")
+            X_km, Y_km = R * np.sin(A), R * np.cos(A)
+            border_poly = sector_polygon_xy(az0, az1, r_pos_min, r1)
+            x_min, x_max = float(X_km.min()), float(X_km.max())
+            y_min, y_max = float(Y_km.min()), float(Y_km.max())
 
         for col, (ax_bot, v, phys) in enumerate(zip(self.axes_world, self.ds.variables, phys_channels)):
             lo, hi = RANGES[v]
             ax_bot.clear()
             ax_bot.set_facecolor(C["bg_world"])
-            ax_bot.pcolormesh(X_km, Y_km, phys[:, start_idx:], cmap=self.cmaps[v], vmin=lo, vmax=hi, shading="flat")
-            ax_bot.add_patch(Polygon(border_poly, closed=True, fill=False, ec=C["text"], lw=1.1, zorder=4))
-            ax_bot.margins(0.06)
-            ax_bot.set_aspect("equal", adjustable="datalim")
-            ax_bot.xaxis.set_major_locator(MaxNLocator(4))
-            ax_bot.yaxis.set_major_locator(MaxNLocator(4))
-            ax_bot.tick_params(labelsize=FS["tick"], length=3)
-            ax_bot.grid(color=C["grid_world"], linewidth=L["grid_world_lw"], alpha=L["grid_world_alpha"])
-            self._draw_radar_marker(ax_bot, x_min, x_max, y_min, y_max)
+            if has_world:
+                ax_bot.pcolormesh(X_km, Y_km, phys[:, start_idx:], cmap=self.cmaps[v], vmin=lo, vmax=hi, shading="flat")
+                ax_bot.add_patch(Polygon(border_poly, closed=True, fill=False, ec=C["text"], lw=1.1, zorder=4))
+                ax_bot.margins(0.06)
+                ax_bot.set_aspect("equal", adjustable="datalim")
+                ax_bot.xaxis.set_major_locator(MaxNLocator(4))
+                ax_bot.yaxis.set_major_locator(MaxNLocator(4))
+                ax_bot.tick_params(labelsize=FS["tick"], length=3)
+                ax_bot.grid(color=C["grid_world"], linewidth=L["grid_world_lw"], alpha=L["grid_world_alpha"])
+                self._draw_radar_marker(ax_bot, x_min, x_max, y_min, y_max)
+            else:
+                ax_bot.text(0.5, 0.5, "Görünür alan yok (r ≤ 0)", transform=ax_bot.transAxes, ha="center", va="center", color=C["text_muted"])
             if col == 1:
                 ax_bot.set_xlabel("Radara göre doğu (km)", fontsize=FS["axis_label"], labelpad=3)
         self.axes_world[0].set_ylabel("Gerçek · Kuzey (km)", fontsize=FS["axis_label"], labelpad=4)
@@ -809,10 +841,11 @@ class EpisodeViewer:
             self.stop_play()
             self.fig.canvas.draw_idle()
         else:
-            if self.current_episode()["n_frames"] <= 1:
+            ep = self.current_episode()
+            if ep is None or ep["n_frames"] <= 1:
                 return
             self.playing = True
-            self.btn_play.label.set_text("⏸ Durdur")
+            self.btn_play.label.set_text("|| Durdur")
             self.timer.start()
             self.fig.canvas.draw_idle()
 
@@ -836,11 +869,15 @@ class EpisodeViewer:
     def jump_random(self):
         self.stop_play()
         pool = self.current_pool()
+        if not pool:
+            return
         self.ep_pos = int(self.rng.integers(0, len(pool)))
         self.frame_idx = 0
         self.render()
 
     def on_filter(self, label: str):
+        if self._suppress_radio:
+            return
         self.stop_play()
         self.active_filter = label
         self.ep_pos = 0
@@ -861,7 +898,11 @@ class EpisodeViewer:
                 self.ep_pos = pool.index(global_ep)
             else:
                 self.active_filter = self.filter_names[0]
-                self.radio.set_active(0)
+                self._suppress_radio = True
+                try:
+                    self.radio.set_active(0)
+                finally:
+                    self._suppress_radio = False
                 self.ep_pos = global_ep
             self.frame_idx = 0
             self.render()
@@ -873,6 +914,8 @@ class EpisodeViewer:
         except ValueError:
             return
         pool = self.current_pool()
+        if not pool:
+            return
         self.ep_pos = max(0, min(len(pool) - 1, num - 1))
         self.frame_idx = 0
         self.render()
@@ -880,7 +923,10 @@ class EpisodeViewer:
     def on_click(self, event):
         if event.inaxes is self.ax_timeline and event.xdata is not None:
             self.stop_play()
-            n = self.current_episode()["n_frames"]
+            ep = self.current_episode()
+            if ep is None:
+                return
+            n = ep["n_frames"]
             idx = int(round(event.xdata))
             self.frame_idx = max(0, min(n - 1, idx))
             self.render()
@@ -918,6 +964,8 @@ class EpisodeViewer:
         self.fig.canvas.draw_idle()
 
     def on_key(self, event):
+        if getattr(self.box_ep, "capturekeystrokes", False):
+            return
         if event.key == "left":
             self.step_frame(-1)
         elif event.key == "right":
