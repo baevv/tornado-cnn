@@ -96,7 +96,11 @@ learning curves, hyperparameter table) and **Hata Analizi** (missed tornadoes / 
 The explorer plays a whole storm episode frame by frame: the real x, y km view and the 120 × 240 CNN input side by side,
 synchronised cursor, every model's score on a timeline.
 
-One-time preparation (after the processed `.npz` files and `splits.csv` exist, e.g. synced from Google Drive):
+Quick start: `python main.py` finds the data folder (`$TORNADO_DATA_DIR`, `data/`, or the synced Google Drive folder)
+and the models folder, runs the two preparation steps below only when needed, and opens the interface in the browser.
+Folders can be given explicitly: `python main.py --data "<.../tornado-cnn/data>" --models "<.../models>"`.
+
+Manual steps (after the processed `.npz` files and `splits.csv` exist, e.g. synced from Google Drive):
 
 ```bash
 export TORNADO_DATA_DIR="$HOME/Library/CloudStorage/GoogleDrive-<account>/My Drive/tornado-cnn/data"
