@@ -1,0 +1,18 @@
+[theme]
+base = "light"
+primaryColor = "#E8950E"
+backgroundColor = "#EDF0F4"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#131A24"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+showSidebarNavigation = false
+
+[server]
+runOnSave = false
+maxMessageSize = 400
+
+[browser]
+gatherUsageStats = false

@@ -48,7 +48,11 @@ src/
     train.py              data loading, DataLoader, loss weights, training loop, metrics
     viz.py                radar plots
   gui/
-    episode_viewer.py     interactive storm episode (.npz + catalog.csv) viewer
+    episode_viewer.py     interactive storm episode (.npz + catalog.csv) viewer (matplotlib)
+  app/                    Streamlit interface: main.py, tabs/, frontend/ (explorer component), assets/
+scripts/
+  export_npy.py           .npz → .npy (mmap) + sample table for the interface
+  make_preds.py           precomputed model scores (preds.parquet)
 configs/
   data.json               years, channels, sweep, frame
   train.json              training settings (optimizer, learning rate, dropout, ...)
@@ -84,6 +88,27 @@ point `TORNADO_DATA_DIR` at the synced Drive folder, e.g.
 ```bash
 export TORNADO_DATA_DIR="$HOME/Library/CloudStorage/GoogleDrive-<account>/My Drive/tornado-cnn/data"
 ```
+
+## Interface (Streamlit)
+
+Four tabs: **Özet** (summary), **Fırtına Gezgini** (storm explorer), **Model Karşılaştırma** (ROC, PR, confusion matrices,
+learning curves, hyperparameter table) and **Hata Analizi** (missed tornadoes / false alarms with Grad-CAM).
+The explorer plays a whole storm episode frame by frame: the real x, y km view and the 120 × 240 CNN input side by side,
+synchronised cursor, every model's score on a timeline.
+
+One-time preparation (after the processed `.npz` files and `splits.csv` exist, e.g. synced from Google Drive):
+
+```bash
+export TORNADO_DATA_DIR="$HOME/Library/CloudStorage/GoogleDrive-<account>/My Drive/tornado-cnn/data"
+export TORNADO_MODELS_DIR="$TORNADO_DATA_DIR/../models"     # folders with best.pt + results.json
+python scripts/export_npy.py     # .npz → memory-mapped .npy + samples.parquet (once per data change)
+python scripts/make_preds.py     # every model's probability for every sample → models/<name>/preds.parquet
+streamlit run src/app/main.py
+```
+
+Models are discovered automatically from the models folder; a retrained model's scores are recomputed by running
+`make_preds.py` again (it skips models whose `preds.parquet` is newer than `best.pt`).
+Put your own logo at `src/app/assets/logo.svg`.
 
 ## Roadmap
 

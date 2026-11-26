@@ -9,3 +9,6 @@ scipy>=1.10
 tqdm>=4.65
 torch>=2.2
 torchvision>=0.17
+streamlit>=1.40
+plotly>=5.20
+pyarrow>=14

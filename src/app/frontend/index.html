@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fırtına Gezgini</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Simgeler (assets/icons.svg) ve logo (assets/logo.svg) Python'dan gelir ve buraya eklenir -->
+<div id="sprite"></div>
+
+<div class="app" id="app">
+  <!-- Şerit 1: logo + sekme simgeleri | sekmeye özel araç çubuğu -->
+  <header class="bar1">
+    <div class="logo" id="logo" aria-label="Logo"></div>
+    <nav class="dock" role="tablist" aria-label="Bölümler" id="tabs"></nav>
+    <span class="divider" aria-hidden="true"></span>
+
+    <div class="ctx" id="ctx-ozet" hidden>
+      <div class="dock" id="oz-models" aria-label="Model"></div>
+      <div class="kpis" id="oz-kpis"></div>
+      <div class="dock" id="oz-split" aria-label="Veri bölümü"></div>
+    </div>
+
+    <div class="ctx" id="ctx-gezgin" hidden>
+      <div class="dock" id="gz-filters" aria-label="Fırtına filtresi"></div>
+      <div class="sstrip" aria-label="Fırtına şeridi">
+        <button class="rb" id="sprev" data-tip="Önceki fırtına" aria-label="Önceki fırtına"><svg class="ico"><use href="#i-chev-l"/></svg></button>
+        <div class="track" id="track"><canvas id="c-strip" height="56"></canvas><span class="hov" id="strip-tip" hidden></span></div>
+        <span class="pos" id="spos"></span>
+        <button class="rb" id="snext" data-tip="Sonraki fırtına" aria-label="Sonraki fırtına"><svg class="ico"><use href="#i-chev-r"/></svg></button>
+      </div>
+      <div class="dock" id="gz-split" aria-label="Veri bölümü"></div>
+      <div class="dock">
+        <label class="rb search" data-tip="Episode ID ile git"><svg class="ico"><use href="#i-search"/></svg><input id="epid" placeholder="Episode ID" inputmode="numeric" aria-label="Episode ID"></label>
+        <button class="rb" id="rnd" data-tip="Rastgele fırtına" aria-label="Rastgele fırtına"><svg class="ico"><use href="#i-shuffle"/></svg></button>
+      </div>
+    </div>
+
+    <div class="ctx" id="ctx-kars" hidden>
+      <div class="dock" id="ks-models" aria-label="Modeller (çoklu)"></div>
+      <div class="dock" id="ks-chart" aria-label="Grafik"></div>
+      <div class="spacer"></div>
+      <div class="dock" id="ks-split" aria-label="Veri bölümü"></div>
+    </div>
+
+    <div class="ctx" id="ctx-hata" hidden>
+      <div class="dock" id="ht-kind" aria-label="Hata türü"></div>
+      <div class="dock" id="ht-models" aria-label="Model"></div>
+      <label class="thr-pill" data-tip="Karar eşiği"><svg class="ico"><use href="#i-sliders"/></svg><input type="range" id="thr" min="0" max="1" step="0.001" aria-label="Karar eşiği"><span class="mono" id="thr-v"></span></label>
+      <div class="spacer"></div>
+      <div class="dock" id="ht-split" aria-label="Veri bölümü"></div>
+      <div class="dock">
+        <button class="rb tgl" id="ht-cam" aria-pressed="true" data-tip="Grad-CAM katmanı" aria-label="Grad-CAM"><svg class="ico"><use href="#i-eye"/></svg></button>
+        <button class="rb tgl" id="ht-sort" aria-pressed="true" data-tip="Sırala: en emin hata önce" aria-label="Sırala"><svg class="ico"><use href="#i-sort"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Gezgin gövdesi -->
+  <div id="gezgin" hidden>
+    <section class="panel bar2">
+      <div class="placard" id="placard"><svg class="ico"><use id="pl-ic" href="#i-tornado"/></svg><div><span class="big" id="pl-big"></span><span class="sub"><span class="ef" id="pl-ef"></span><span id="pl-y"></span></span></div></div>
+      <div class="cells" id="cells"></div>
+      <div class="cells probe" id="readout"></div>
+    </section>
+
+    <main class="work">
+      <section class="panel stage">
+        <div class="sbar">
+          <h2 id="st-name">VEL</h2>
+          <div class="cbar"><span id="bar-lo"></span><canvas id="c-bar" width="340" height="8"></canvas><span id="bar-hi"></span></div>
+          <span class="st" id="st-stats"></span>
+          <div class="seg" role="group" aria-label="Görünüm">
+            <button aria-pressed="true" data-v="both">İkisi</button>
+            <button aria-pressed="false" data-v="real">km</button>
+            <button aria-pressed="false" data-v="cnn">CNN</button>
+          </div>
+        </div>
+        <div class="stage-body" id="stage-body">
+          <div class="view view-real" id="v-real">
+            <canvas id="c-real" width="820" height="740"></canvas>
+            <canvas id="o-real" class="ov" width="820" height="740"></canvas>
+            <span class="vtag">x, y km</span>
+          </div>
+          <div class="view" id="v-cnn">
+            <canvas id="c-cnn" width="820" height="740"></canvas>
+            <canvas id="o-cnn" class="ov" width="820" height="740"></canvas>
+            <span class="vtag" style="left:auto;right:8px">CNN 120×240</span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="channels" id="channels" aria-label="Diğer kanallar"></aside>
+
+      <aside class="panel verdicts">
+        <div class="vhead">
+          <div class="big" id="cons"></div>
+          <div class="t" id="cons-t"></div>
+          <div class="pips" id="pips"></div>
+        </div>
+        <div class="models" id="models"></div>
+      </aside>
+    </main>
+
+    <section class="panel player">
+      <div class="pctl">
+        <button class="iconbtn" id="fprev" aria-label="Önceki kare"><svg class="ico"><use href="#i-skip-b"/></svg></button>
+        <button class="play" id="play" aria-label="Oynat"><svg class="ico"><use href="#i-play" id="play-ic"/></svg></button>
+        <button class="iconbtn" id="fnext" aria-label="Sonraki kare"><svg class="ico"><use href="#i-skip-f"/></svg></button>
+        <div class="clock"><span class="t" id="clk"></span><span class="f" id="frm"></span></div>
+      </div>
+      <svg id="tl" height="112" aria-label="Model skor zaman çizelgesi"></svg>
+    </section>
+  </div>
+
+  <div class="empty panel" id="empty" hidden></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
