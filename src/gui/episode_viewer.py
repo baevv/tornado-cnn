@@ -6,6 +6,8 @@
   * Örnekleri episode_id altında zaman sırasına (start_time) göre gruplar.
   * Üst seviyede fırtına olayları arasında, alt seviyede ise seçili fırtınanın
     tüm zaman kareleri arasında gezinme + Oynat/Durdur + tıklanabilir zaman çizelgesi sunar.
+  * Üst satırda CNN'in gördüğü 120×240 ham matrisi, alt satırda ise her değişkenin
+    insan gözüyle anlaşılabilen gerçek dünya (kutupsal -> x, y km) görünümünü çizer.
   * Etiket y=1 (TOR) için kırmızı çerçeve, y=0 (WRN + NUL) için yeşil çerçeve gösterir.
 """
 from __future__ import annotations
@@ -13,6 +15,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+from matplotlib.patches import Polygon
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button, RadioButtons, TextBox
 import numpy as np
@@ -72,6 +75,15 @@ def decode_for_model(q: np.ndarray, variables: list[str]) -> np.ndarray:
     for i, v in enumerate(variables):
         x[i][q[i] == 0] = FILL_NORM.get(v, -1.0)
     return x
+
+
+def sector_polygon_xy(az_a: float, az_b: float, r_a: float, r_b: float, n: int = 48) -> np.ndarray:
+    """Kutupsal (az_a..az_b derece, r_a..r_b km) diliminin kapalı (x, y) poligon köşeleri."""
+    az1 = np.deg2rad(np.linspace(az_a, az_b, n))
+    az2 = np.deg2rad(np.linspace(az_b, az_a, n))
+    x = np.concatenate([r_a * np.sin(az1), r_b * np.sin(az2)])
+    y = np.concatenate([r_a * np.cos(az1), r_b * np.cos(az2)])
+    return np.column_stack([x, y])
 
 
 def physical_stats(q: np.ndarray, variables: list[str]) -> str:
@@ -137,6 +149,8 @@ class EpisodeDataset:
                 ef = int(round(ef_raw)) if ef_raw >= 0 else -1
                 rng_min = float(row["rng_min"]) / 1000.0
                 rng_max = float(row["rng_max"]) / 1000.0
+                az_min = float(row["az_min"])
+                az_max = float(row["az_max"])
 
                 ep_frames.setdefault(ep_id, []).append({
                     "filename": fname,
@@ -154,6 +168,7 @@ class EpisodeDataset:
                     "lat": float(row["lat"]),
                     "lon": float(row["lon"]),
                     "rng_km": (rng_min, rng_max),
+                    "az_deg": (az_min, az_max),
                 })
 
         self.episodes: list[dict] = []
@@ -232,71 +247,84 @@ class EpisodeViewer:
         self.playing = False
         self.rng = np.random.default_rng()
 
-        self.fig, self.axes = plt.subplots(1, 3, figsize=(16.5, 7.2))
-        self.fig.subplots_adjust(left=0.24, right=0.96, top=0.80, bottom=0.29, wspace=0.28)
+        self.fig, self.axes = plt.subplots(
+            2, 3, figsize=(16.8, 9.4), gridspec_kw={"height_ratios": [1.0, 1.12]}
+        )
+        self.fig.subplots_adjust(left=0.24, right=0.955, top=0.83, bottom=0.225, wspace=0.26, hspace=0.24)
+        self.axes_cnn = self.axes[0]
+        self.axes_world = self.axes[1]
 
-        # İlk placeholder görüntüleri
+        # İlk placeholder görüntüleri (Üst: CNN 120x240, Alt: Gerçek dünya kutupsal x/y km)
         q0 = self.ds.get_image(eps[0]["frames"][0])
         x0 = decode_for_model(q0, self.ds.variables)
         self.images = []
-        for ax, v, img in zip(self.axes, self.ds.variables, x0):
-            im = ax.imshow(img, aspect="auto", cmap=CMAPS[v], vmin=-1, vmax=1)
-            ax.set_title(v, fontsize=11, fontweight="bold")
-            ax.set_xlabel("mesafe (250 m / piksel)")
-            self.fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        for ax_top, ax_bot, v, img in zip(self.axes_cnn, self.axes_world, self.ds.variables, x0):
+            im = ax_top.imshow(img, aspect="auto", cmap=CMAPS[v], vmin=-1, vmax=1)
+            ax_top.set_title(v, fontsize=11, fontweight="bold")
+            ax_top.set_xlabel("mesafe (250 m / piksel)", fontsize=8.8)
+            ax_bot.set_aspect("equal", adjustable="datalim")
+            self.fig.colorbar(im, ax=[ax_top, ax_bot], fraction=0.046, pad=0.035)
             self.images.append(im)
-        self.axes[0].set_ylabel("açı (0.5° / piksel)")
+        self.axes_cnn[0].set_ylabel("CNN Girdisi\naçı (0.5° / piksel)", fontsize=9.2)
 
         # Üst başlık ve kırmızı/yeşil rozet
         self.status_badge = self.fig.text(
-            0.59, 0.945, "", ha="center", va="center", fontsize=11.5, fontweight="bold",
-            bbox=dict(boxstyle="round,pad=0.38", lw=2),
+            0.585, 0.958, "", ha="center", va="center", fontsize=11.5, fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.36", lw=2),
         )
-        self.ep_title = self.fig.text(0.59, 0.89, "", ha="center", va="center", fontsize=10.5, fontweight="bold")
-        self.file_title = self.fig.text(0.59, 0.85, "", ha="center", va="center", fontsize=9.2, color="#444444")
+        self.ep_title = self.fig.text(0.585, 0.908, "", ha="center", va="center", fontsize=10.5, fontweight="bold")
+        self.file_title = self.fig.text(0.585, 0.870, "", ha="center", va="center", fontsize=9.0, color="#444444")
 
-        # Sol panel: 1) Filtre, 2) Katalog/Fırtına Bilgisi, 3) Radar Değerleri
-        ax_radio = self.fig.add_axes([0.015, 0.62, 0.175, 0.22])
-        ax_radio.set_title("Fırtına Filtresi", fontsize=10, fontweight="bold")
+        # Sol panel: 1) Filtre, 2) Katalog/Fırtına Bilgisi, 3) Radar Değerleri, 4) Senkron İmleç
+        ax_radio = self.fig.add_axes([0.015, 0.675, 0.172, 0.175])
+        ax_radio.set_title("Fırtına Filtresi", fontsize=9.8, fontweight="bold")
         self.radio = RadioButtons(ax_radio, self.filter_names, active=1)
         self.radio.on_clicked(self.on_filter)
 
-        ax_cat = self.fig.add_axes([0.015, 0.34, 0.175, 0.24], facecolor="#f4f6f8")
-        ax_cat.set_title("Fırtına & Katalog", fontsize=10, fontweight="bold")
+        ax_cat = self.fig.add_axes([0.015, 0.415, 0.172, 0.225], facecolor="#f4f6f8")
+        ax_cat.set_title("Fırtına & Katalog", fontsize=9.8, fontweight="bold")
         ax_cat.set_xticks([])
         ax_cat.set_yticks([])
         self.cat_text = ax_cat.text(
-            0.05, 0.94, "", va="top", ha="left", fontsize=8.4, family="monospace"
+            0.05, 0.94, "", va="top", ha="left", fontsize=8.1, family="monospace"
         )
 
-        ax_stats = self.fig.add_axes([0.015, 0.08, 0.175, 0.22], facecolor="#f8f9fa")
-        ax_stats.set_title("Radar Değerleri", fontsize=10, fontweight="bold")
+        ax_stats = self.fig.add_axes([0.015, 0.205, 0.172, 0.175], facecolor="#f8f9fa")
+        ax_stats.set_title("Radar Değerleri", fontsize=9.8, fontweight="bold")
         ax_stats.set_xticks([])
         ax_stats.set_yticks([])
         self.stats_text = ax_stats.text(
-            0.05, 0.92, "", va="top", ha="left", fontsize=8.4, family="monospace"
+            0.05, 0.92, "", va="top", ha="left", fontsize=8.0, family="monospace"
+        )
+
+        ax_cursor = self.fig.add_axes([0.015, 0.025, 0.172, 0.145], facecolor="#eef6ff")
+        ax_cursor.set_title("İmleç (Senkron)", fontsize=9.8, fontweight="bold")
+        ax_cursor.set_xticks([])
+        ax_cursor.set_yticks([])
+        self.cursor_text = ax_cursor.text(
+            0.05, 0.92, "", va="top", ha="left", fontsize=8.0, family="monospace"
         )
 
         # Zaman çizelgesi (fırtınanın tüm kareleri; tıklanabilir)
-        self.ax_timeline = self.fig.add_axes([0.24, 0.14, 0.56, 0.07], facecolor="#fafafa")
+        self.ax_timeline = self.fig.add_axes([0.24, 0.102, 0.56, 0.055], facecolor="#fafafa")
         self.ax_timeline.set_title(
             "Fırtınanın Zaman Çizelgesi (kareye tıklayarak atlayabilirsin: yeşil=SAFE, kırmızı=WARNING)",
-            fontsize=9.2, loc="left",
+            fontsize=9.0, loc="left",
         )
         self.ax_timeline.set_yticks([])
 
-        ax_play = self.fig.add_axes([0.82, 0.145, 0.11, 0.055])
+        ax_play = self.fig.add_axes([0.82, 0.104, 0.11, 0.050])
         self.btn_play = Button(ax_play, "▶ Oynat")
         self.btn_play.on_clicked(lambda _: self.toggle_play())
 
         # Alt kontrol çubuğu
-        ax_ep_prev = self.fig.add_axes([0.24, 0.04, 0.095, 0.055])
-        ax_ep_next = self.fig.add_axes([0.34, 0.04, 0.095, 0.055])
-        ax_fr_prev = self.fig.add_axes([0.45, 0.04, 0.085, 0.055])
-        ax_fr_next = self.fig.add_axes([0.54, 0.04, 0.085, 0.055])
-        ax_rand = self.fig.add_axes([0.64, 0.04, 0.08, 0.055])
-        ax_box = self.fig.add_axes([0.80, 0.04, 0.075, 0.055])
-        ax_go = self.fig.add_axes([0.88, 0.04, 0.05, 0.055])
+        ax_ep_prev = self.fig.add_axes([0.24, 0.025, 0.095, 0.048])
+        ax_ep_next = self.fig.add_axes([0.34, 0.025, 0.095, 0.048])
+        ax_fr_prev = self.fig.add_axes([0.45, 0.025, 0.085, 0.048])
+        ax_fr_next = self.fig.add_axes([0.54, 0.025, 0.085, 0.048])
+        ax_rand = self.fig.add_axes([0.64, 0.025, 0.08, 0.048])
+        ax_box = self.fig.add_axes([0.80, 0.025, 0.075, 0.048])
+        ax_go = self.fig.add_axes([0.88, 0.025, 0.05, 0.048])
 
         self.btn_ep_prev = Button(ax_ep_prev, "◀ Fırtına")
         self.btn_ep_next = Button(ax_ep_next, "Fırtına ▶")
@@ -314,8 +342,14 @@ class EpisodeViewer:
         self.box_ep.on_submit(self.jump_to_text)
         self.btn_go.on_clicked(lambda _: self.jump_to_text(self.box_ep.text))
 
+        self.current_fr: dict | None = None
+        self.current_q: np.ndarray | None = None
+        self.hover_cell: tuple[int, int] | None = None
+        self.hover_markers: list = []
+
         self.fig.canvas.mpl_connect("key_press_event", self.on_key)
         self.fig.canvas.mpl_connect("button_press_event", self.on_click)
+        self.fig.canvas.mpl_connect("motion_notify_event", self.on_motion)
 
         self.timer = self.fig.canvas.new_timer(interval=500)
         self.timer.add_callback(self._on_tick)
@@ -367,6 +401,69 @@ class EpisodeViewer:
             fontsize=9.0, loc="left",
         )
 
+    def _clear_hover_markers(self):
+        for artist in self.hover_markers:
+            try:
+                artist.remove()
+            except Exception:
+                pass
+        self.hover_markers.clear()
+
+    def _draw_hover_markers(self, fr: dict, cell: tuple[int, int]):
+        self._clear_hover_markers()
+        az_i, rng_i = cell
+        az0 = fr["az_deg"][0]
+        r0 = fr["rng_km"][0]
+        az_deg = az0 + (az_i + 0.5) * 0.5
+        r_km = r0 + (rng_i + 0.5) * 0.25
+
+        for ax_top in self.axes_cnn:
+            m_out = ax_top.plot(rng_i, az_i, marker="o", ms=9, mfc="none", mec="#000000", mew=2.4, zorder=10)[0]
+            m_in = ax_top.plot(rng_i, az_i, marker="o", ms=9, mfc="none", mec="#00e5ff", mew=1.4, zorder=11)[0]
+            self.hover_markers.extend([m_out, m_in])
+
+        if r_km >= 0.0:
+            x_km = r_km * np.sin(np.deg2rad(az_deg))
+            y_km = r_km * np.cos(np.deg2rad(az_deg))
+            for ax_bot in self.axes_world:
+                m_out = ax_bot.plot(x_km, y_km, marker="o", ms=9, mfc="none", mec="#000000", mew=2.4, zorder=10)[0]
+                m_in = ax_bot.plot(x_km, y_km, marker="o", ms=9, mfc="none", mec="#00e5ff", mew=1.4, zorder=11)[0]
+                self.hover_markers.extend([m_out, m_in])
+
+    def _update_cursor_box(self, fr: dict, q: np.ndarray, cell: tuple[int, int] | None):
+        if cell is None:
+            self.cursor_text.set_text(
+                "Fareyi 6 grafikten\nbirinin üzerine getirin:\ntümünde aynı nokta\nişaretlenir."
+            )
+            return
+
+        az_i, rng_i = cell
+        az_deg = (fr["az_deg"][0] + (az_i + 0.5) * 0.5) % 360.0
+        r_km = fr["rng_km"][0] + (rng_i + 0.5) * 0.25
+        if r_km >= 0.0:
+            x_km = r_km * np.sin(np.deg2rad(az_deg))
+            y_km = r_km * np.cos(np.deg2rad(az_deg))
+            loc_txt = f"Dünya : x={x_km:5.1f} y={y_km:5.1f}km"
+        else:
+            loc_txt = "Dünya : r<0 (sanal alan)"
+
+        vals = []
+        for i, v in enumerate(self.ds.variables):
+            qv = int(q[i, az_i, rng_i])
+            if qv == 0:
+                vals.append(f"{v:5s}: boş (NaN)")
+            else:
+                lo, hi = RANGES[v]
+                phys = (qv - 1.0) / 254.0 * (hi - lo) + lo
+                vals.append(f"{v:5s}: {phys:6.1f} {UNITS[v]}")
+
+        self.cursor_text.set_text(
+            f"Piksel: (az={az_i}, rng={rng_i})\n"
+            f"Konum : {az_deg:5.1f}° | {r_km:5.1f}km\n"
+            f"{loc_txt}\n"
+            + "\n".join(vals)
+        )
+
     def render(self):
         ep = self.current_episode()
         frames = ep["frames"]
@@ -374,6 +471,9 @@ class EpisodeViewer:
         fr = frames[self.frame_idx]
 
         q = self.ds.get_image(fr)
+        self.current_fr = fr
+        self.current_q = q
+        self._clear_hover_markers()
         x = decode_for_model(q, self.ds.variables)
         for im, img in zip(self.images, x):
             im.set_data(img)
@@ -389,10 +489,37 @@ class EpisodeViewer:
             border_color, bg_color = "#2e7d32", "#e8f5e9"
             badge_txt = f"SAFE / GÜVENLİ (y=0)  ·  Hortum Yok (alt sınıf: {cat})"
 
-        for ax in self.axes:
+        # Alt satır: her değişkenin gerçek dünya (kutupsal -> x, y km) görünümü
+        az0, az1 = fr["az_deg"]
+        r0, r1 = fr["rng_km"]
+        start_idx = max(0, int(np.ceil(-r0 / 0.25)))
+        r_pos_min = r0 + start_idx * 0.25
+        az_edges = np.deg2rad(np.linspace(az0, az1, 121))
+        rng_edges = np.linspace(r_pos_min, r1, 241 - start_idx)
+        A, R = np.meshgrid(az_edges, rng_edges, indexing="ij")
+        X_km, Y_km = R * np.sin(A), R * np.cos(A)
+        border_poly = sector_polygon_xy(az0, az1, r_pos_min, r1)
+
+        for i, (ax_bot, v) in enumerate(zip(self.axes_world, self.ds.variables)):
+            ax_bot.clear()
+            ax_bot.set_facecolor("#f0f2f5")
+            ax_bot.pcolormesh(X_km, Y_km, x[i, :, start_idx:], cmap=CMAPS[v], vmin=-1, vmax=1, shading="flat")
+            ax_bot.add_patch(Polygon(border_poly, closed=True, fill=False, ec="#222222", lw=1.4, zorder=4))
+            ax_bot.margins(0.05)
+            ax_bot.set_aspect("equal", adjustable="datalim")
+            ax_bot.set_xlabel("radara göre doğu (km)", fontsize=8.8)
+            ax_bot.tick_params(labelsize=8.0)
+            ax_bot.grid(alpha=0.25)
+        self.axes_world[0].set_ylabel("Gerçek Dünya\nradara göre kuzey (km)", fontsize=9.2)
+
+        for ax in self.axes.flat:
             for spine in ax.spines.values():
                 spine.set_edgecolor(border_color)
                 spine.set_linewidth(3.0)
+
+        if self.hover_cell is not None:
+            self._draw_hover_markers(fr, self.hover_cell)
+        self._update_cursor_box(fr, q, self.hover_cell)
 
         self.status_badge.set_text(badge_txt)
         self.status_badge.set_color(border_color)
@@ -407,12 +534,12 @@ class EpisodeViewer:
         self.file_title.set_text(fr["filename"])
 
         max_ef_txt = f"EF{ep['max_ef']}" if ep["max_ef"] >= 0 else "Yok"
-        r0, r1 = fr["rng_km"]
         self.cat_text.set_text(
             f"Episode ID : {ep['episode_id']}\n"
             f"Küme (split): {ep['split']}\n"
             f"Tarih      : {fr['start_time'][:10]}\n"
             f"İstasyon   : {fr['site']} ({fr['lat']:.2f}, {fr['lon']:.2f})\n"
+            f"Açı        : {az0 % 360:.0f}°–{az1 % 360:.0f}° (60°)\n"
             f"Uzaklık    : {r0:.0f}–{r1:.0f} km\n"
             f"Kare Şiddet: {ef_txt} (Fırtına max: {max_ef_txt})\n"
             f"Fırtına Özeti ({ep['n_frames']} kare):\n"
@@ -508,6 +635,38 @@ class EpisodeViewer:
             idx = int(round(event.xdata))
             self.frame_idx = max(0, min(n - 1, idx))
             self.render()
+
+    def on_motion(self, event):
+        if self.current_fr is None or self.current_q is None:
+            return
+        fr = self.current_fr
+        cell: tuple[int, int] | None = None
+
+        if any(event.inaxes is ax for ax in self.axes_cnn) and event.xdata is not None and event.ydata is not None:
+            rng_i = int(round(event.xdata))
+            az_i = int(round(event.ydata))
+            if 0 <= az_i < 120 and 0 <= rng_i < 240:
+                cell = (az_i, rng_i)
+        elif any(event.inaxes is ax for ax in self.axes_world) and event.xdata is not None and event.ydata is not None:
+            r_km = float(np.hypot(event.xdata, event.ydata))
+            az_deg = float(np.degrees(np.arctan2(event.xdata, event.ydata)) % 360.0)
+            az0 = fr["az_deg"][0]
+            r0, r1 = fr["rng_km"]
+            d_az = (az_deg - (az0 % 360.0)) % 360.0
+            if 0.0 <= d_az < 60.0 and r0 <= r_km < r1:
+                az_i = min(119, max(0, int(d_az / 0.5)))
+                rng_i = min(239, max(0, int((r_km - r0) / 0.25)))
+                cell = (az_i, rng_i)
+
+        if cell == self.hover_cell:
+            return
+        self.hover_cell = cell
+        if cell is None:
+            self._clear_hover_markers()
+        else:
+            self._draw_hover_markers(fr, cell)
+        self._update_cursor_box(fr, self.current_q, cell)
+        self.fig.canvas.draw_idle()
 
     def on_key(self, event):
         if event.key == "left":
