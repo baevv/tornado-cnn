@@ -2,6 +2,7 @@
 
 Sırasıyla:
   1. Veri klasörünü bulur: --data, $TORNADO_DATA_DIR, <repo>/data, Google Drive (~/Library/CloudStorage/GoogleDrive-*/...).
+     catalog.csv ile tornet_*.npz aynı klasörde duruyorsa (ör. ~ ya da ~/Downloads) onları <repo>/data'ya bağlar.
   2. Model klasörünü bulur: --models, $TORNADO_MODELS_DIR, <repo>/models, <veri>/../models.
   3. .npy dosyaları yoksa ya da .npz'ler daha yeniyse scripts/export_npy.py'yi çalıştırır.
   4. preds.parquet'i olmayan ya da eskimiş model varsa scripts/make_preds.py'yi çalıştırır.
@@ -30,6 +31,28 @@ def _has_data(d: Path) -> bool:
     return (d / "processed" / "npy" / "samples.parquet").exists() or any((d / "processed").glob("tornet_*.npz"))
 
 
+def _is_flat(d: Path) -> bool:
+    """Düz düzen: tornet_*.npz ve catalog.csv doğrudan klasörün içinde (processed/ alt klasörü yok)."""
+    return (d / "catalog.csv").exists() and any(d.glob("tornet_*.npz"))
+
+
+def link_flat(src: Path) -> Path:
+    """Düz düzendeki dosyaları <repo>/data altına sembolik bağla (kopyalamaz); diğer betikler data/processed bekler."""
+    dst = ROOT / "data"
+    (dst / "processed").mkdir(parents=True, exist_ok=True)
+    pairs = [(src / n, dst / n) for n in ("catalog.csv", "splits.csv")]
+    pairs += [(f, dst / "processed" / f.name) for f in src.glob("tornet_*.npz")]
+    for s, t in pairs:
+        if not s.exists():
+            continue
+        if t.is_symlink() and t.resolve() != s.resolve():
+            t.unlink()                                   # eski bağ başka yeri gösteriyor
+        if not t.exists() and not t.is_symlink():
+            t.symlink_to(s.resolve())
+    print(f"Düz veri klasörü bulundu ({src}); {dst} altına bağlandı.")
+    return dst
+
+
 def find_data(arg):
     """Veri klasörü: içinde processed/tornet_*.npz (ya da hazır npy) olan ilk aday."""
     cands = [arg, os.environ.get("TORNADO_DATA_DIR"), ROOT / "data"]
@@ -39,9 +62,15 @@ def find_data(arg):
                 "Google Drive/*/tornado-cnn/data", "Google Drive/tornado-cnn/data",
                 "Library/CloudStorage/GoogleDrive-*/*/*/data"):
         cands += sorted(glob.glob(str(home / pat)))
+    cands = [Path(c).expanduser() for c in cands if c]
     for c in cands:
-        if c and _has_data(Path(c).expanduser()):
-            return Path(c).expanduser()
+        if _has_data(c):
+            return c
+    # catalog.csv ve npz'ler tek klasörde duruyorsa (ör. Colab'dan indirilip ana klasöre konmuşsa)
+    given = [Path(c).expanduser() for c in (arg, os.environ.get("TORNADO_DATA_DIR")) if c]
+    for c in [*given, home, home / "Downloads", home / "Desktop", home / "Documents"]:
+        if c.is_dir() and _is_flat(c):
+            return link_flat(c)
     return None
 
 
@@ -112,7 +141,7 @@ def main():
     env = os.environ.copy()
     data = find_data(args.data)
     if data is None:
-        print("Uyarı: veri klasörü bulunamadı (processed/tornet_*.npz yok). Arayüz açılacak ama Gezgin boş olur.\n"
+        print("Uyarı: veri klasörü bulunamadı (processed/tornet_*.npz ya da catalog.csv + tornet_*.npz yok). Arayüz açılacak ama Gezgin boş olur.\n"
               "  Klasörü göster:  python main.py --data \"<.../tornado-cnn/data>\"")
     else:
         env["TORNADO_DATA_DIR"] = str(data)
