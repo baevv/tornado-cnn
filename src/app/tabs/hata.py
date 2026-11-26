@@ -94,7 +94,13 @@ def body(ss, store, models):
             ef = f" · EF{r['ef']}" if r["category"] == "TOR" and r["ef"] >= 0 else ""
             st.image(img, use_container_width=True,
                      caption=f"#{r['episode_id']} · {r['end_time']:%Y-%m-%d %H:%M} · {r['category']}{ef} · skor {r['prob']:.3f}")
-            if st.button("Gezgin'de aç", key=f"open_{idx}", icon=":material/radar:", use_container_width=True):
+            b1, b2 = st.columns(2, gap="small")
+            if b2.button("Açıkla", key=f"xai_{idx}", icon=":material/lightbulb:", use_container_width=True):
+                from src.app.tabs import xai
+                frames = store.frames(r["episode_id"])
+                xai.open_frame(ss, r["episode_id"], list(frames.index).index(idx), info.key)
+                st.rerun()
+            if b1.button("Gezgin'de aç", key=f"open_{idx}", icon=":material/radar:", use_container_width=True):
                 frames = store.frames(r["episode_id"])
                 ss.tab, ss.gz_ep, ss.gz_filter, ss.gz_split = "gezgin", int(r["episode_id"]), "all", "all"
                 ss.gz_frame = int(list(frames.index).index(idx))

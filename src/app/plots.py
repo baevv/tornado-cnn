@@ -118,3 +118,97 @@ def radar_rgb(q: np.ndarray, var: str, cam: np.ndarray | None = None) -> np.ndar
         rgb = rgb * 0.6 + 255 * 0.4                 # radar renkleri soluk kalır, ısı haritası öne çıkar
         rgb = rgb * (1 - a) + heat * a
     return np.clip(rgb, 0, 255).astype(np.uint8)
+
+
+# ---------------------------------------------------------------- Açıklanabilirlik
+
+CHANNEL_COLORS = {"DBZ": "#0072B2", "VEL": "#E8950E", "WIDTH": "#7B5BE0"}
+METHOD_COLORS = {"cam": "#D55E00", "ig": "#0072B2", "occ": "#009E73", "rnd": "#8791A1"}
+METHOD_NAMES = {"cam": "Grad-CAM", "ig": "Integrated Gradients", "occ": "Occlusion", "rnd": "Rastgele sıra"}
+
+
+def shap_waterfall(base: float, phi, variables, score: float, thr: float, height=330) -> go.Figure:
+    """Kanal SHAP şelalesi: taban → +her kanal → skor (olasılık ölçeği)."""
+    labels, bases, widths, colors, texts = ["taban"], [0.0], [base], [T.NUL], [f"{base:.3f}"]
+    cur = base
+    for v, d in zip(variables, phi):
+        labels.append(f"{'+' if d >= 0 else '−'} {v}")
+        bases.append(cur if d >= 0 else cur + d)
+        widths.append(abs(d))
+        colors.append(CHANNEL_COLORS.get(v, T.MUTED))
+        texts.append(f"{d:+.3f}")
+        cur += d
+    labels.append("= skor"); bases.append(0.0); widths.append(score); colors.append(T.INK); texts.append(f"{score:.3f}")
+    f = _fig(title=dict(text="Kanal katkısı · SHAP"), height=height, margin=dict(l=70, r=56, t=40, b=36), showlegend=False)
+    f.add_bar(y=labels, x=widths, base=bases, orientation="h", marker=dict(color=colors), text=texts, textposition="outside",
+              cliponaxis=False, textfont=dict(family="IBM Plex Mono, monospace", size=12),
+              hovertemplate="%{y}: %{text}<extra></extra>")
+    f.add_vline(x=thr, line=dict(color=T.INK, width=1.5, dash="dash"), annotation_text="eşik", annotation_position="top",
+                annotation_font=dict(size=10, color=T.MUTED))
+    f.update_yaxes(autorange="reversed", showgrid=False)
+    f.update_xaxes(range=[0, 1.05], title="hortum olasılığı")
+    return f
+
+
+def deletion_plot(curves: dict, method: str, thr: float, height=320) -> go.Figure:
+    """curves: {yöntem: (silinen oran, skor)}; seçili yöntem kalın çizilir."""
+    f = _fig(title=dict(text="Sadakat testi · silme eğrisi"), height=height, margin=dict(l=52, r=16, t=40, b=96),
+             legend=dict(orientation="h", x=0, y=-0.32, yanchor="top", font=dict(size=11)))
+    for k in ("ig", "occ", "cam", "rnd"):
+        if k not in curves:
+            continue
+        x, y = curves[k]
+        on = k == method
+        f.add_scatter(x=np.asarray(x) * 100, y=y, mode="lines", name=METHOD_NAMES[k],
+                      line=dict(color=METHOD_COLORS[k], width=3.2 if on else 1.6, dash="dash" if k == "rnd" else "solid"),
+                      opacity=1 if on or k == "rnd" else 0.5,
+                      hovertemplate="%{x:.0f}% silindi · skor %{y:.3f}<extra>" + METHOD_NAMES[k] + "</extra>")
+    f.add_hline(y=thr, line=dict(color=T.INK, width=1, dash="dot"))
+    f.update_xaxes(title="silinen piksel (%)", range=[0, 50], ticksuffix="")
+    f.update_yaxes(title="model skoru", range=[0, 1.02])
+    return f
+
+
+def channel_share_bars(rows: list, variables, height=300) -> go.Figure:
+    """rows: [(etiket, {kanal: pay})]; yatay yığılmış çubuklar, ortalama |SHAP| payı."""
+    f = _fig(title=dict(text="Kanal katkısı · karar türüne göre (ortalama |SHAP| payı)"), height=height, barmode="stack",
+             margin=dict(l=120, r=16, t=40, b=60), legend=dict(orientation="h", y=-0.16, x=0, traceorder="normal"))
+    labels = [r[0] for r in rows]
+    for v in variables:
+        vals = [r[1].get(v, 0.0) for r in rows]
+        f.add_bar(y=labels, x=vals, name=v, orientation="h", marker_color=CHANNEL_COLORS.get(v, T.MUTED),
+                  text=[f"%{100 * x:.0f}" for x in vals], textposition="inside", insidetextanchor="start",
+                  textfont=dict(family="IBM Plex Mono, monospace", size=11, color="#FFFFFF" if v != "VEL" else T.INK),
+                  hovertemplate="%{y} · " + v + " %{x:.1%}<extra></extra>")
+    f.update_yaxes(autorange="reversed", showgrid=False)
+    f.update_xaxes(range=[0, 1], tickformat=".0%")
+    return f
+
+
+def distance_hist(groups: list, method: str, height=300) -> go.Figure:
+    """groups: [(etiket, renk, km dizisi)]; açıklama zirvesi ↔ en güçlü dönme mesafesi."""
+    f = _fig(title=dict(text=f"Zirve ↔ en güçlü dönme · {METHOD_NAMES[method]}"), height=height, barmode="group",
+             margin=dict(l=52, r=16, t=40, b=84), legend=dict(orientation="h", y=-0.3, x=0))
+    for lab, col, d in groups:
+        d = np.clip(np.asarray(d, dtype=float), 0, 20)
+        f.add_histogram(x=d, xbins=dict(start=0, end=20.001, size=1), name=f"{lab} · {len(d)}", marker_color=col,
+                        histnorm="probability", hovertemplate="%{x} km<br>oran %{y:.2f}<extra>" + lab + "</extra>")
+    f.add_vline(x=3, line=dict(color=T.INK, width=1.2, dash="dash"), annotation_text="3 km", annotation_position="top right",
+                annotation_font=dict(size=10))
+    f.update_xaxes(title="mesafe (km, 20+ birleşik)", range=[0, 20.5])
+    f.update_yaxes(title="oran", tickformat=".0%")
+    return f
+
+
+def sanity_bars(vals: dict, method: str, height=230) -> go.Figure:
+    """vals: {yöntem: ortalama sıra korelasyonu (eğitilmiş vs rastgele ağırlık)}."""
+    keys = [k for k in ("cam", "ig", "occ") if k in vals]
+    f = _fig(title=dict(text="Sağlamlık kontrolü · rastgele ağırlıkla harita benzerliği"), height=height,
+             margin=dict(l=150, r=50, t=40, b=40), showlegend=False)
+    f.add_bar(y=[METHOD_NAMES[k] for k in keys], x=[vals[k] for k in keys], orientation="h",
+              marker_color=[T.INK if k == method else T.NUL for k in keys], text=[f"{vals[k]:.2f}" for k in keys],
+              textposition="outside", cliponaxis=False, textfont=dict(family="IBM Plex Mono, monospace", size=12),
+              hovertemplate="%{y}: %{x:.2f}<extra></extra>")
+    f.update_xaxes(range=[min(0, *[vals[k] for k in keys]) - 0.05, 1], title="Spearman ρ (düşük = harita modele bağlı)")
+    f.update_yaxes(autorange="reversed", showgrid=False)
+    return f

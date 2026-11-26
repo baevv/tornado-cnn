@@ -58,6 +58,19 @@
         <button class="rb tgl" id="ht-sort" aria-pressed="true" data-tip="Sırala: en emin hata önce" aria-label="Sırala"><svg class="ico"><use href="#i-sort"/></svg></button>
       </div>
     </div>
+    <div class="ctx" id="ctx-xai" hidden>
+      <div class="dock" id="ax-models" aria-label="Model"></div>
+      <div class="dock" id="ax-view" aria-label="Görünüm"></div>
+      <div class="dock" id="ax-method" aria-label="Yöntem"></div>
+      <div class="spacer"></div>
+      <div class="dock" id="ax-frame-nav">
+        <button class="rb" id="ax-prev" data-tip="Önceki kare" aria-label="Önceki kare"><svg class="ico"><use href="#i-chev-l"/></svg></button>
+        <span class="pos mono" id="ax-pos"></span>
+        <button class="rb" id="ax-next" data-tip="Sonraki kare" aria-label="Sonraki kare"><svg class="ico"><use href="#i-chev-r"/></svg></button>
+        <button class="rb" id="ax-open" data-tip="Gezgin'de aç" aria-label="Gezgin'de aç"><svg class="ico"><use href="#i-radar"/></svg></button>
+      </div>
+      <div class="dock" id="ax-split" aria-label="Veri bölümü"></div>
+    </div>
   </header>
 
   <!-- Gezgin gövdesi -->
@@ -74,6 +87,7 @@
           <h2 id="st-name">VEL</h2>
           <div class="cbar"><span id="bar-lo"></span><canvas id="c-bar" width="340" height="8"></canvas><span id="bar-hi"></span></div>
           <span class="st" id="st-stats"></span>
+          <button class="iconbtn" id="explain" title="Bu kareyi açıkla (Açıklanabilirlik)" aria-label="Bu kareyi açıkla"><svg class="ico"><use href="#i-bulb"/></svg></button>
           <div class="seg" role="group" aria-label="Görünüm">
             <button aria-pressed="true" data-v="both">İkisi</button>
             <button aria-pressed="false" data-v="real">km</button>

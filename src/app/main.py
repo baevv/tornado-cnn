@@ -7,7 +7,7 @@ Veri:    $TORNADO_DATA_DIR/processed/npy  (scripts/export_npy.py ile bir kez haz
 Modeller: $TORNADO_MODELS_DIR ya da <data_dir>/../models; her alt klasör = bir model (best.pt + results.json)
 Skorlar:  models/<ad>/preds.parquet (scripts/make_preds.py)
 
-Sekmeler: Özet · Fırtına Gezgini · Model Karşılaştırma · Hata Analizi.
+Sekmeler: Özet · Fırtına Gezgini · Model Karşılaştırma · Hata Analizi · Açıklanabilirlik.
 Üst bar ve Gezgin, src/app/frontend altındaki bileşendir; diğer sekmelerin gövdesi Plotly ile çizilir.
 """
 import sys
@@ -24,9 +24,9 @@ st.set_page_config(page_title="Fırtına Gezgini", page_icon=str(Path(__file__).
 
 from src.app import cache, shell, theme  # noqa: E402
 from src.app import models as M  # noqa: E402
-from src.app.tabs import gezgin, hata, kars, ozet  # noqa: E402
+from src.app.tabs import gezgin, hata, kars, ozet, xai  # noqa: E402
 
-TABS = {"ozet": ozet, "gezgin": gezgin, "kars": kars, "hata": hata}
+TABS = {"ozet": ozet, "gezgin": gezgin, "kars": kars, "hata": hata, "xai": xai}
 
 theme.inject()
 ss = st.session_state
@@ -44,7 +44,7 @@ gezgin.defaults(ss)
 if store is not None and not (store.samples["split"] == "val").any():
     for k in ("oz_split", "ks_split", "ht_split"):
         ss.setdefault(k, "test")
-for mod in (ozet, kars, hata):
+for mod in (ozet, kars, hata, xai):
     mod.defaults(ss, models)
 
 # ---------------------------------------------------------------- bileşenden gelen son eylem
@@ -64,6 +64,13 @@ if isinstance(ev, dict) and ev.get("n") != ss.get("_last_ev"):
         kars.handle(ev, ss)
     elif a.startswith("hata_"):
         hata.handle(ev, ss)
+    elif a == "explain" and store is not None:
+        try:
+            xai.open_frame(ss, int(ev["id"]), int(ev["frame"]), ev.get("model") or ss.sel_model)
+        except (KeyError, ValueError):
+            pass
+    elif a.startswith("xai_"):
+        xai.handle(ev, ss, store)
 
 # ---------------------------------------------------------------- bileşen durumu
 public_models = [{"key": m.key, "label": m.label, "long": m.long_label, "color": m.color, "thr": m.threshold,

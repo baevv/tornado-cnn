@@ -170,40 +170,7 @@ def predict_images(net, q: np.ndarray, variables, batch=128, device="cpu") -> np
     return np.concatenate(out) if out else np.zeros(0, dtype=np.float32)
 
 
-def _cam_layer(net):
-    """Grad-CAM katmanı: ResNet'te layer4, TornadoCNN'de son ReLU (son evrişim bloğunun çıktısı)."""
-    from torch import nn
-    if hasattr(net, "layer4"):
-        return net.layer4
-    relus = [m for m in net.features if isinstance(m, nn.ReLU)]
-    return relus[-1]
-
-
 def gradcam(net, q: np.ndarray, variables, device="cpu") -> np.ndarray:
-    """Her kare için Grad-CAM haritası, 0..1 aralığında, girdi boyutunda: (N, H, W)."""
-    import torch
-    import torch.nn.functional as F
-
-    from src.helper.train import decode_batch
-
-    layer = _cam_layer(net)
-    acts, grads = {}, {}
-    def keep(m, i, o):
-        acts["a"] = o
-        o.register_hook(lambda g: grads.__setitem__("g", g))
-
-    h1 = layer.register_forward_hook(keep)
-    try:
-        x = decode_batch(torch.from_numpy(np.ascontiguousarray(q)).to(device), variables).requires_grad_(True)
-        net.zero_grad()
-        logit = net(x).squeeze(1)
-        logit.sum().backward()
-        a, g = acts["a"], grads["g"]
-        w = g.mean(dim=(2, 3), keepdim=True)
-        cam = F.relu((w * a).sum(1, keepdim=True))
-        cam = F.interpolate(cam, size=q.shape[-2:], mode="bilinear", align_corners=False)[:, 0]
-        cam = cam.detach().cpu().numpy()
-    finally:
-        h1.remove()
-    mx = cam.reshape(len(cam), -1).max(1).reshape(-1, 1, 1)
-    return np.where(mx > 0, cam / np.maximum(mx, 1e-12), 0.0).astype(np.float32)
+    """Her kare için Grad-CAM haritası, 0..1, girdi boyutunda: (N, H, W). Ayrıntı: src/helper/xai.py."""
+    from src.helper.xai import gradcam as _gradcam
+    return _gradcam(net, q, variables)

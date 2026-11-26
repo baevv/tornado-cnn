@@ -96,3 +96,11 @@ def cam(model_key: str, stamp: float, ep_id, _q: np.ndarray, variables: tuple) -
 @st.cache_data(show_spinner=False, max_entries=64)
 def rotation(ep_id, stamp: float, _q: np.ndarray, variables: tuple) -> list:
     return D.rotation_cells(_q, list(variables))
+
+
+@st.cache_data(show_spinner="Açıklama hesaplanıyor…", max_entries=48)
+def explain(model_key: str, stamp: float, filename: str, _q: np.ndarray, variables: tuple, rot, az0: float, r0: float) -> dict:
+    """Tek kare için bütün açıklamalar (src/helper/xai.explain_frame); kare dosya adıyla önbelleğe alınır."""
+    from src.helper.xai import explain_frame
+    return explain_frame(net(model_key, stamp), _q, list(variables), rot_cell=None if rot is None else tuple(rot),
+                         az0=az0, r0=r0)

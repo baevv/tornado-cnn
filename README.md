@@ -47,12 +47,14 @@ src/
     model.py              the CNN
     train.py              data loading, DataLoader, loss weights, training loop, metrics
     viz.py                radar plots
+    xai.py                explainability: Grad-CAM, Integrated Gradients, Occlusion, channel SHAP, deletion test
   gui/
     episode_viewer.py     interactive storm episode (.npz + catalog.csv) viewer (matplotlib)
   app/                    Streamlit interface: main.py, tabs/, frontend/ (explorer component), assets/
 scripts/
   export_npy.py           .npz → .npy (mmap) + sample table for the interface
   make_preds.py           precomputed model scores (preds.parquet)
+  make_xai.py             precomputed explainability measures (xai.parquet)
 configs/
   data.json               years, channels, sweep, frame
   train.json              training settings (optimizer, learning rate, dropout, ...)
@@ -91,8 +93,9 @@ export TORNADO_DATA_DIR="$HOME/Library/CloudStorage/GoogleDrive-<account>/My Dri
 
 ## Interface (Streamlit)
 
-Four tabs: **Özet** (summary), **Fırtına Gezgini** (storm explorer), **Model Karşılaştırma** (ROC, PR, confusion matrices,
-learning curves, hyperparameter table) and **Hata Analizi** (missed tornadoes / false alarms with Grad-CAM).
+Five tabs: **Özet** (summary), **Fırtına Gezgini** (storm explorer), **Model Karşılaştırma** (ROC, PR, confusion matrices,
+learning curves, hyperparameter table), **Hata Analizi** (missed tornadoes / false alarms with Grad-CAM) and
+**Açıklanabilirlik** (explainability, see below).
 The explorer plays a whole storm episode frame by frame: the real x, y km view and the 120 × 240 CNN input side by side,
 synchronised cursor, every model's score on a timeline.
 
@@ -107,12 +110,32 @@ export TORNADO_DATA_DIR="$HOME/Library/CloudStorage/GoogleDrive-<account>/My Dri
 export TORNADO_MODELS_DIR="$TORNADO_DATA_DIR/../models"     # folders with best.pt + results.json
 python scripts/export_npy.py     # .npz → memory-mapped .npy + samples.parquet (once per data change)
 python scripts/make_preds.py     # every model's probability for every sample → models/<name>/preds.parquet
+python scripts/make_xai.py       # explainability measures on balanced test frames → models/<name>/xai.parquet
 streamlit run src/app/main.py
 ```
 
 Models are discovered automatically from the models folder; a retrained model's scores are recomputed by running
 `make_preds.py` again (it skips models whose `preds.parquet` is newer than `best.pt`).
 Put your own logo at `src/app/assets/logo.svg`.
+
+## Explainability (XAI)
+
+`src/helper/xai.py` explains why a model says "tornado" for a radar frame, with four complementary methods:
+
+| Method | Question it answers |
+|---|---|
+| **Grad-CAM** | Where does the model look? (coarse: 15 × 30 cells for our CNN, 4 × 8 for ResNet-18) |
+| **Integrated Gradients** | Which pixels, in which channel? (32 steps from an empty "no echo" input) |
+| **Occlusion** | How much does the score drop when a 10 × 10 patch is blanked? (model-agnostic, 288 passes) |
+| **Channel SHAP** | How much do DBZ, VEL and WIDTH contribute? Exact Shapley values (2³ = 8 passes); they sum to score − base |
+
+The explanations are themselves tested: a **deletion curve** (most important pixels removed first; a faster score drop than
+a random order means the explanation is faithful), the **distance in km** between the explanation's peak and the strongest
+rotation (velocity couplet), and a **weight-randomisation sanity check** (the map should change when the weights are random).
+
+In the interface, **Açıklanabilirlik → Tek kare** explains one frame (open it with the bulb button in the explorer or
+"Açıkla" in Hata Analizi); **Genel** shows the test-set summary from `make_xai.py`. Every sentence in the "Yorum" and
+"Bulgular" boxes is generated from the numbers on screen, not written by hand.
 
 ## Roadmap
 
@@ -122,7 +145,7 @@ Put your own logo at `src/app/assets/logo.svg`.
 - [ ] 04 · Hyperparameter comparison (learning rate, schedule, L2, Dropout, width, batch size, optimizers SGD / momentum / RMSprop / Adam, pos_weight) (ready to run)
 - [ ] 05 · Model comparison: our CNN vs. transfer learning (ResNet-18)
 - [ ] 06 · Evaluation on the test split (accuracy, F1, ROC-AUC, PR-AUC, confusion matrix)
-- [ ] 07 · Explainability (Grad-CAM)
+- [x] 07 · Explainability (Grad-CAM, Integrated Gradients, Occlusion, channel SHAP) in the interface
 - [ ] 08 · Interface to test the model on new samples
 - [ ] Report (PDF)
 

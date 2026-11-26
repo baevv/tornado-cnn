@@ -199,3 +199,19 @@ body.only .rb[data-tip]:hover::after{display:none}
 .radar-arrow{pointer-events:none}
 /* Tek görünüm (yalnız km ya da yalnız CNN): sahne aşırı uzamasın */
 .stage-body.single .view{width:100%;max-width:820px;margin:0 auto}
+
+/* Açıklanabilirlik araç çubuğu */
+#ax-frame-nav{align-items:center}
+#ax-frame-nav .pos{font-size:12px;padding:0 6px;color:var(--ink);white-space:nowrap}
+.sbar #explain{margin-left:auto}
+.sbar #explain + .seg{margin-left:6px}
+
+/* Model kartı + açıkla simgesi */
+.mcw{flex:1;min-width:0;display:flex;align-items:stretch;border-right:1px solid var(--line-soft)}
+.mcw:last-child{border-right:0}
+.verdicts .mcw .mc{border-right:0;flex:1}
+.mx{flex:none;width:30px;display:grid;place-items:center;border:0;border-left:1px solid var(--line-soft);background:none;color:var(--muted);padding:0}
+.mx .ico{width:15px;height:15px}
+.mx:hover{background:var(--accent);color:var(--accent-ink)}
+@media (max-width:1150px){.verdicts .mcw{flex-basis:33%}}
+@media (max-width:760px){.verdicts .mcw{flex-basis:50%}}

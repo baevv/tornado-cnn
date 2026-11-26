@@ -321,7 +321,13 @@ function drawModels() {
       (cls ? `<span class="vd ${cls}" aria-label="${VD[cls][1]}">${ico(VD[cls][0])}</span>` : '<span></span>') +
       `<span class="meter"><span class="track"></span><span class="fill" style="width:${has ? s * 100 : 0}%;background:${m.color}"></span><span class="thr" style="left:calc(${m.thr * 100}% - 1px)"></span></span>`;
     b.onclick = () => { if (S.sel === m.key) return; S.sel = m.key; drawModels(); drawTimeline(); send('model', {key: m.key}); };
-    box.appendChild(b);
+    // Kartın yanındaki simge: bu modelin bu karedeki kararını Açıklanabilirlik sekmesinde açar
+    const w = document.createElement('div'); w.className = 'mcw';
+    const x = document.createElement('button'); x.className = 'mx'; x.dataset.tip = `${m.label} · bu kareyi açıkla`;
+    x.setAttribute('aria-label', `${m.label}: bu kareyi açıkla`); x.title = x.dataset.tip; x.innerHTML = ico('bulb');
+    x.onclick = () => { stopPlay(); send('explain', {id: EP.meta.episode_id, frame: S.frame, model: m.key}); };
+    w.appendChild(b); w.appendChild(x);
+    box.appendChild(w);
   });
   $('cons').innerHTML = `${yes}<small>/${n}</small>`;
   $('cons-t').innerHTML = `hortum diyor<br>gerçek: <b style="color:var(${y ? '--tor' : EP.frames[f].cat === 'WRN' ? '--wrn' : '--nul'})">y=${y}</b>`;
@@ -453,10 +459,11 @@ track.addEventListener('click', e => goto(stripIdx(e)));
 $('sprev').onclick = () => goto(STRIP.pos - 1);
 $('snext').onclick = () => goto(STRIP.pos + 1);
 $('rnd').onclick = () => { stopPlay(); send('random'); };
+$('explain').onclick = () => { if (!EP) return; stopPlay(); send('explain', {id: EP.meta.episode_id, frame: S.frame}); };
 $('epid').addEventListener('keydown', e => { if (e.key === 'Enter' && /^-?\d+$/.test(e.target.value.trim())) { stopPlay(); send('epid', {id: e.target.value.trim()}); e.target.value = ''; e.target.blur(); } });
 
 // ---------------------------------------------------------------- üst bar
-const TABS = [['ozet', 'grid', 'Özet'], ['gezgin', 'radar', 'Fırtına Gezgini'], ['kars', 'bars', 'Model Karşılaştırma'], ['hata', 'bug', 'Hata Analizi']];
+const TABS = [['ozet', 'grid', 'Özet'], ['gezgin', 'radar', 'Fırtına Gezgini'], ['kars', 'bars', 'Model Karşılaştırma'], ['hata', 'bug', 'Hata Analizi'], ['xai', 'bulb', 'Açıklanabilirlik']];
 const SPLIT_ICO = {all: 'db', train: 'dumbbell', val: 'check-c', test: 'flask'};
 const SPLIT_N = {all: 'Tümü', train: 'Eğitim', val: 'Doğrulama', test: 'Test'};
 function pickDock(el, items, selected, onPick, cls = 'pick') {
@@ -517,6 +524,20 @@ function renderToolbars() {
     $('ht-cam').onclick = () => { const on = $('ht-cam').getAttribute('aria-pressed') !== 'true'; $('ht-cam').setAttribute('aria-pressed', on); send('hata_cam', {on}); };
     $('ht-sort').setAttribute('aria-pressed', !!h.sort_conf);
     $('ht-sort').onclick = () => { const on = $('ht-sort').getAttribute('aria-pressed') !== 'true'; $('ht-sort').setAttribute('aria-pressed', on); send('hata_sort', {on}); };
+  } else if (S.tab === 'xai') {
+    const x = A.xai;
+    pickDock($('ax-models'), modelItems(), x.model, id => { setPressed($('ax-models'), id); send('xai_model', {key: id}); });
+    const VIEWS = [['frame', 'crosshair', 'Tek kare', 'Seçili karenin açıklaması'], ['global', 'layers', 'Genel', 'Test setinin toplu analizi']];
+    pickDock($('ax-view'), VIEWS.map(([id, icon, name, tip]) => ({id, icon, name, tip})), x.view, id => { setPressed($('ax-view'), id); send('xai_view', {view: id}); });
+    const METH = [['cam', 'eye', 'Grad-CAM', 'Grad-CAM: model nereye bakıyor (kaba)'], ['ig', 'crosshair', 'Int. Gradients', 'Integrated Gradients: piksel ve kanal düzeyinde katkı'], ['occ', 'grid', 'Occlusion', 'Occlusion: bölge kapatılınca skor ne kadar düşüyor']];
+    pickDock($('ax-method'), METH.map(([id, icon, name, tip]) => ({id, icon, name, tip})), x.method, id => { setPressed($('ax-method'), id); send('xai_method', {method: id}); });
+    const isFrame = x.view === 'frame';
+    $('ax-frame-nav').hidden = !isFrame || !x.pos;
+    $('ax-split').hidden = true;          // genel görünümün bölümü xai.parquet'ten gelir (make_xai.py --split)
+    $('ax-pos').textContent = x.pos || '';
+    $('ax-prev').onclick = () => send('xai_frame', {step: -1});
+    $('ax-next').onclick = () => send('xai_frame', {step: 1});
+    $('ax-open').onclick = () => send('xai_open');
   }
 }
 

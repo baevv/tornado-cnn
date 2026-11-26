@@ -44,6 +44,26 @@ iframe[title="src.app.shell.firtina_shell"], iframe[title*="firtina_shell"] {{ d
 [data-testid="stImage"] img {{ border-radius: 6px; border: 1px solid {LINE}; }}
 .stButton > button {{ border-radius: 999px; border: 1px solid {LINE}; background: {PANEL}; }}
 .stButton > button:hover {{ border-color: {ACCENT}; color: {INK}; }}
+/* Açıklanabilirlik: kare bilgi şeridi, özet kutuları, yorum maddeleri */
+.xs {{ display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; background: {PANEL}; border: 2px solid var(--st, {LINE}); border-radius: 8px; padding: 5px; }}
+.xs .pl {{ display: flex; flex-direction: column; justify-content: center; background: var(--st); color: #fff; border-radius: 6px; padding: 3px 12px; }}
+.xs .pl b {{ font-family: {FONT_DISPLAY}; font-weight: 800; font-size: 22px; line-height: 1; text-transform: uppercase; }}
+.xs .pl span {{ font-family: {FONT_MONO}; font-size: 10.5px; }}
+.xs .c {{ display: flex; flex-direction: column; justify-content: center; padding: 0 12px; border-left: 1px solid {LINE_SOFT}; }}
+.xs .c:first-of-type {{ border-left: 0; }}
+.xs .k, .xk .k {{ font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: #5E6878; line-height: 1.2; }}
+.xs .v {{ font-family: {FONT_MONO}; font-size: 12.5px; white-space: nowrap; }}
+.xs .pr {{ display: flex; margin-left: auto; background: {PANEL_2}; border-radius: 6px; padding: 3px 0; }}
+.xs .pr .c {{ border-left-color: {LINE}; }}
+.xs .pr .v {{ font-size: 15px; font-weight: 500; }}
+.xbox {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: 8px; box-shadow: 0 1px 2px rgba(19,26,36,.05); padding: 10px 14px; }}
+.xk {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 6px 0 10px; }}
+.xk > div {{ background: {PANEL_2}; border-radius: 6px; padding: 8px 10px; }}
+.xk .n {{ font-family: {FONT_DISPLAY}; font-weight: 800; font-size: 28px; line-height: 1; }}
+.xk .s {{ font-size: 11.5px; color: {MUTED}; }}
+.xb {{ display: flex; gap: 10px; align-items: flex-start; margin: 6px 0; font-size: 13px; color: #2A3340; line-height: 1.45; }}
+.xb i {{ width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; }}
+.xd {{ font-size: 12.5px; color: #3E4857; margin: 2px 2px 0; }}
 </style>
 """
 
