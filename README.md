@@ -37,13 +37,16 @@ notebooks/
   02_preprocess.ipynb     preprocessing demo, process selected years to Drive, train/val/test split
   03_train_baseline.ipynb data loader, CNN, training, learning curves, validation results
 src/
-  paths.py                storage locations on Colab / locally
-  tornet.py               download, catalog, reading and preprocessing samples
-  eda.py                  raw-data analysis: per-variable measures, rotation strength, separability (AUC)
-  data.py                 train/val/test split by storm episode and its checks
-  model.py                the CNN
-  train.py                data loading, DataLoader, loss weights, training loop, metrics
-  viz.py                  radar plots
+  helper/
+    paths.py              storage locations on Colab / locally
+    tornet.py             download, catalog, reading and preprocessing samples
+    eda.py                raw-data analysis: per-variable measures, rotation strength, separability (AUC)
+    data.py               train/val/test split by storm episode and its checks
+    model.py              the CNN
+    train.py              data loading, DataLoader, loss weights, training loop, metrics
+    viz.py                radar plots
+  gui/
+    episode_viewer.py     interactive storm episode (.npz + catalog.csv) viewer
 configs/
   data.json               years, channels, sweep, frame
   train.json              training settings (optimizer, learning rate, dropout, ...)

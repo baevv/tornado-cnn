@@ -15,7 +15,7 @@ import json
 import os
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]   # bu dosyanın iki üst klasörü = repo kökü
+REPO_ROOT = Path(__file__).resolve().parents[2]   # bu dosyanın üç üst klasörü = repo kökü
 
 
 def in_colab() -> bool:
