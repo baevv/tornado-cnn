@@ -28,7 +28,7 @@ The data is **not** stored in this repository. The notebooks download it from Ze
 | `01_explore_data` | EDA: metadata vs. radar data, class balance, radar images, which variables/sweep/frame to use | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/01_explore_data.ipynb) |
 | `02_preprocess` | Preprocessing demo on one sample, all selected years saved to Google Drive, train/validation/test split with leakage checks | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/02_preprocess.ipynb) |
 | `03_train_baseline` | Data loader, our CNN, training with early stopping, learning curves, validation metrics (GPU) | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/03_train_baseline.ipynb) |
-| `04_hyperparameters` | One-at-a-time hyperparameter comparison (learning rate, schedule, L2, Dropout, width, batch size, optimizer, pos_weight), per-category results (GPU) | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/04_hyperparameters.ipynb) |
+| `04_hyperparameters` | One-at-a-time hyperparameter comparison (learning rate, schedule, L2, Dropout, width, batch size, optimizers SGD / momentum / RMSprop / Adam, pos_weight), per-category results (GPU) | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/baevv/tornado-cnn/blob/main/notebooks/04_hyperparameters.ipynb) |
 
 ## Project structure
 
@@ -87,7 +87,7 @@ export TORNADO_DATA_DIR="$HOME/Library/CloudStorage/GoogleDrive-<account>/My Dri
 - [x] 01 · Data exploration (EDA)
 - [x] 02 · Preprocessing and train/validation/test split by storm episode
 - [x] 03 · Data loader and CNN baseline with class-weighted loss
-- [ ] 04 · Hyperparameter comparison (learning rate, schedule, L2, Dropout, width, batch size, optimizer, pos_weight) (ready to run)
+- [ ] 04 · Hyperparameter comparison (learning rate, schedule, L2, Dropout, width, batch size, optimizers SGD / momentum / RMSprop / Adam, pos_weight) (ready to run)
 - [ ] 05 · Model comparison: our CNN vs. transfer learning (ResNet-18)
 - [ ] 06 · Evaluation on the test split (accuracy, F1, ROC-AUC, PR-AUC, confusion matrix)
 - [ ] 07 · Explainability (Grad-CAM)
