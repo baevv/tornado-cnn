@@ -1,5 +1,5 @@
 /* Düzen: bütün metin iki ince üst şeritte (gezinme+filtre, fırtına bilgisi); altında yalnız görseller:
-   iki eşit radar görünümü | kanal küçük resimleri | model kararları; en altta oynatıcı. Açık tema (sunum). */
+   iki eşit radar görünümü | kanal küçük resimleri; altında yatay model kararları sırası ve oynatıcı. Açık tema (sunum). */
 :root{
   color-scheme: light;
   --ground:#EDF0F4; --panel:#FFFFFF; --panel-2:#F4F6F9;
@@ -97,7 +97,7 @@ button{cursor:pointer}
 :root[data-state="nul"] .panel.bar2{border-color:var(--line)}
 
 /* Çalışma alanı */
-.work{display:grid;grid-template-columns:minmax(0,1fr) 196px 264px;gap:8px;align-items:stretch}
+.work{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:8px;align-items:stretch}
 .stage{display:flex;flex-direction:column;min-width:0;overflow:hidden}
 .sbar{display:flex;align-items:center;gap:10px;padding:6px 8px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
 .sbar h2{margin:0;font-family:var(--f-display);font-weight:800;font-size:19px;letter-spacing:.03em}
@@ -121,7 +121,11 @@ button{cursor:pointer}
 .ch .nm{position:absolute;left:8px;top:5px;font-family:var(--f-display);font-weight:800;font-size:15px;letter-spacing:.04em}
 .ch .stt{position:absolute;left:8px;bottom:5px;font-family:var(--f-mono);font-size:10.5px;color:var(--muted);background:rgba(255,255,255,.85);border-radius:3px;padding:0 3px}
 
-.verdicts{display:flex;flex-direction:column}
+.verdicts{display:flex;flex-direction:row;align-items:stretch}
+.verdicts .vhead{border-bottom:0;border-right:1px solid var(--line-soft);padding:6px 14px;flex:none}
+.verdicts .models{flex-direction:row}
+.verdicts .mc{border-bottom:0;border-right:1px solid var(--line-soft);padding:8px 12px;min-width:0}
+.verdicts .mc:last-child{border-right:0}
 .vhead{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--line-soft)}
 .vhead .big{font-family:var(--f-display);font-weight:800;font-size:34px;line-height:.9}
 .vhead .big small{font-size:20px;color:var(--faint)}
@@ -158,8 +162,11 @@ button{cursor:pointer}
 #tl{display:block;width:100%;cursor:pointer;touch-action:none}
 
 @media (max-width:1150px){
-  .work{grid-template-columns:minmax(0,1fr) 240px}
+  .work{grid-template-columns:minmax(0,1fr)}
+  .verdicts,.verdicts .models{flex-wrap:wrap}
+  .verdicts .mc{flex-basis:33%}
   .channels{grid-column:1/-1;grid-template-rows:none;grid-template-columns:repeat(3,minmax(0,1fr));order:3}
+  .channels .ch{aspect-ratio:360/300}   /* tuval mutlak konumlu: satırda kendi yüksekliği olmazsa küçük resimler görünmez */
 }
 @media (max-width:760px){
   .work{grid-template-columns:minmax(0,1fr)}
@@ -167,6 +174,8 @@ button{cursor:pointer}
   .view-real{border-right:0;border-bottom:1px solid var(--line-soft)}
   .player{grid-template-columns:minmax(0,1fr)}
   .stormnav{margin-left:0}
+  .verdicts .vhead{flex-basis:100%;border-right:0;border-bottom:1px solid var(--line-soft)}
+  .verdicts .mc{flex-basis:50%}
   .ctx{flex-basis:100%}
   .divider{display:none}
   .sstrip{flex-basis:100%;min-width:0}

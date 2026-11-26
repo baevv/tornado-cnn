@@ -98,8 +98,10 @@ function decodeEpisode(e) {
   const boxes = ep.frames.map(boxOf);
   const u = boxes.reduce((b, c) => [Math.min(b[0], c[0]), Math.max(b[1], c[1]), Math.min(b[2], c[2]), Math.max(b[3], c[3])]);
   const area = b => (b[1] - b[0]) * (b[3] - b[2]);
-  const single = Math.max(...boxes.map(area));
-  ep.boxes = area(u) <= 2.2 * single ? boxes.map(() => u) : boxes;
+  // Ortak kutu yalnız her kare onu iyi dolduruyorsa: radara yakın fırtınalarda kareler çok farklı olduğundan
+  // ortak kutu en küçük kareyi köşede küçücük bırakırdı (en küçük kareye göre karşılaştırılır).
+  const smallest = Math.min(...boxes.map(area));
+  ep.boxes = area(u) <= 1.6 * smallest ? boxes.map(() => u) : boxes;
   ep.proj = {};
   return ep;
 }
@@ -188,7 +190,8 @@ function grid(ctx, proj, f, labels) {
     const pts = score(pa) >= score(pb) ? pa : pb;
     ctx.textAlign = 'center';
     rings.forEach((r, k) => ctx.fillText(k === rings.length - 1 ? r + ' km' : r, pts[k][0], pts[k][1]));
-    for (let a = a1; a <= aB; a += 10) { const p = proj.fwd(...toXY(a, rB + 7)); ctx.fillText((((a % 360) + 360) % 360) + '°', p[0], p[1]); }
+    // Açı etiketleri sektörün dışına yazılır; sektör tuvali doldurunca kenardan taşmasın diye içeri kıstırılır
+    for (let a = a1; a <= aB; a += 10) { const p = proj.fwd(...toXY(a, rB + 7)); ctx.fillText((((a % 360) + 360) % 360) + '°', clamp(p[0], 30, proj.W - 30), clamp(p[1], 14, proj.H - 14)); }
     // radara doğru ok
     const cx = toXY((aA + aB) / 2, (rA + rB) / 2), ang = Math.atan2(cx[1], -cx[0]);   // ekran: +x sağ, +y aşağı
     const ax = proj.W - 70, ay = 26, L = 15;
@@ -364,9 +367,16 @@ function drawTimeline() {
     if (on && s[S.frame] != null) h += `<circle cx="${X(S.frame)}" cy="${Y(s[S.frame])}" r="4" fill="${m.color}" stroke="var(--panel)" stroke-width="1.5"/>`;
   }
   h += `<line x1="${X(S.frame)}" x2="${X(S.frame)}" y1="${T}" y2="${bot}" stroke="var(--accent)" stroke-width="2"/>`;
-  const every = Math.ceil(44 / cw);
-  for (let t = 0; t < NF; t++) { if (t % every && t !== S.frame) continue;
-    h += `<text x="${X(t)}" y="${H - 4}" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="${t === S.frame ? 'var(--accent)' : 'var(--muted)'}">${EP.frames[t].time}</text>`; }
+  // Saat etiketleri: aynı saat (aynı dakikada iki kare) bir kez yazılır, etiketler üst üste binmez; seçili kare önceliklidir.
+  const MINGAP = 40, lab = [{t: S.frame, x: X(S.frame), s: EP.frames[S.frame].time}];
+  const every = Math.max(1, Math.ceil(MINGAP / cw));
+  for (let t = 0; t < NF; t++) {
+    if (t % every || t === S.frame) continue;
+    const x = X(t), s = EP.frames[t].time;
+    if (lab.some(l => l.s === s || Math.abs(l.x - x) < MINGAP)) continue;
+    lab.push({t, x, s});
+  }
+  for (const l of lab) h += `<text x="${l.x}" y="${H - 4}" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="${l.t === S.frame ? 'var(--accent)' : 'var(--muted)'}">${l.s}</text>`;
   tl.innerHTML = h; tl._geo = {L, cw};
 }
 function pickFrame(e) { const b = tl.getBoundingClientRect(), g = tl._geo; setFrame(clamp(Math.floor((e.clientX - b.left - g.L) / g.cw), 0, EP.F - 1)); }
