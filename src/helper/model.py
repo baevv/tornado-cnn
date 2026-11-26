@@ -84,40 +84,39 @@ def count_params(model) -> int:
 
 
 def layer_table(model, input_shape=(3, 120, 240)):
-    """Her katmanın çıktı boyutu ve parametre sayısı (PyTorch'tan) + 6. haftadaki formülle elle hesap.
+    """Her katmanın çıktı boyutu, eğitilebilir parametre sayısı ve hesaplama formülü.
 
-    Formül: evrişim = filtre_yüksekliği × filtre_genişliği × giriş_kanalı × filtre_sayısı + filtre_sayısı (bias)
-            tam bağlı = giriş × çıkış + çıkış (bias)
+    Formül: evrişim  = (filtre_yüksekliği · filtre_genişliği · giriş_kanalı + 1) · filtre_sayısı
+            tam bağlı = (giriş + 1) · çıkış            (+1: her nöronun bias'ı)
+    Formülle bulunan sayı PyTorch'un saydığıyla karşılaştırılır (assert).
     """
     import pandas as pd
 
     rows, hooks = [], []
 
     def hook(module, inp, out):
-        tracked = (nn.Conv2d, nn.Linear, nn.MaxPool2d, nn.AdaptiveMaxPool2d,
-                   nn.AdaptiveAvgPool2d, nn.BatchNorm2d, nn.ReLU, nn.Dropout, nn.Flatten)
-        if isinstance(module, tracked):
-            if isinstance(module, nn.Conv2d):
-                kh, kw = module.kernel_size
-                b = module.out_channels if module.bias is not None else 0
-                manual = kh * kw * module.in_channels * module.out_channels + b
-                formula = f"{kh}·{kw}·{module.in_channels}·{module.out_channels}" + (f" + {b}" if b else "")
-            elif isinstance(module, nn.Linear):
-                b = module.out_features if module.bias is not None else 0
-                manual = module.in_features * module.out_features + b
-                formula = f"{module.in_features}·{module.out_features}" + (f" + {b}" if b else "")
-            elif isinstance(module, nn.BatchNorm2d):
-                manual = 2 * module.num_features
-                formula = f"2·{module.num_features}"
-            else:
-                manual, formula = 0, ""
-            rows.append({
-                "katman": type(module).__name__,
-                "çıktı boyutu": " × ".join(str(d) for d in out.shape[1:]),
-                "parametre (PyTorch)": sum(p.numel() for p in module.parameters()),
-                "parametre (elle)": manual,
-                "formül": formula,
-            })
+        if isinstance(module, nn.Conv2d):
+            kh, kw = module.kernel_size
+            has_bias = module.bias is not None
+            manual = (kh * kw * module.in_channels + (1 if has_bias else 0)) * module.out_channels
+            formula = f"({kh}·{kw}·{module.in_channels}" + (" + 1" if has_bias else "") + f") · {module.out_channels}"
+        elif isinstance(module, nn.Linear):
+            has_bias = module.bias is not None
+            manual = (module.in_features + (1 if has_bias else 0)) * module.out_features
+            formula = f"({module.in_features}" + (" + 1" if has_bias else "") + f") · {module.out_features}"
+        elif isinstance(module, nn.BatchNorm2d):
+            manual = 2 * module.num_features if module.affine else 0
+            formula = f"2 · {module.num_features}" if module.affine else ""
+        else:
+            manual, formula = 0, ""
+        n = sum(p.numel() for p in module.parameters() if p.requires_grad)
+        assert n == manual, f"{type(module).__name__}: PyTorch {n} ≠ formül {manual}"
+        rows.append({
+            "katman": type(module).__name__,
+            "çıktı boyutu": " × ".join(str(d) for d in out.shape[1:]),
+            "parametre": n,
+            "formül": formula,
+        })
 
     for m in model.modules():
         if m is not model and not list(m.children()):
@@ -129,4 +128,6 @@ def layer_table(model, input_shape=(3, 120, 240)):
     model.train(was_training)
     for h in hooks:
         h.remove()
-    return pd.DataFrame(rows)
+    table = pd.DataFrame(rows)
+    assert table["parametre"].sum() == count_params(model)
+    return table

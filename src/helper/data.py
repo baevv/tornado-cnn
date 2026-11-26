@@ -4,7 +4,7 @@ Kurallar:
   * Test kümesi: veri setinin hazır `test` kısmı. Hiç değiştirilmez, en sona kadar kullanılmaz.
   * Test fırtınalarıyla ortak olan fırtınalar (episode_id) eğitimden çıkarılır (sızıntı).
   * Doğrulama kümesi: kalan `train` kısmından, FIRTINA OLAYINA GÖRE ayrılır. Aynı fırtınanın
-    bütün örnekleri ya eğitimde ya doğrulamada olur (5. hafta, "fotoğraf kopyaları" örneği).
+    bütün örnekleri ya eğitimde ya doğrulamada olur.
   * Doğrulamada hortum oranı eğitimdekine yakın olsun diye bölme etikete göre dengelenir.
 """
 import numpy as np
