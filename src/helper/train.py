@@ -187,6 +187,21 @@ def predict(model, loader, variables, device, pos_weight=1.0):
     return torch.cat(probs).numpy(), total / max(n, 1)
 
 
+def make_scheduler(opt, cfg):
+    """Öğrenme oranı planlaması. "plateau": doğrulama AUC'si 2 tur iyileşmezse lr yarıya iner."""
+    if cfg.get("scheduler") == "plateau":
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode="max", factor=0.5, patience=1)
+    if cfg.get("scheduler") is None:
+        return None
+    raise ValueError(f"bilinmeyen planlama: {cfg['scheduler']}")
+
+
+def _save_checkpoint(path, model, opt, sched, state, cfg):
+    torch.save({"model": model.state_dict(), "optimizer": opt.state_dict(),
+                "scheduler": sched.state_dict() if sched is not None else None,
+                "state": state, "cfg": cfg}, path)
+
+
 def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, device, log=print):
     """Eğitim döngüsü: her grupta ileri yayılım → kayıp → geri yayılım → güncelleme.
 
@@ -201,6 +216,7 @@ def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, de
     out_dir.mkdir(parents=True, exist_ok=True)
     last_path, best_path = out_dir / "last.pt", out_dir / "best.pt"
     opt = make_optimizer(model, cfg)
+    sched = make_scheduler(opt, cfg)
     crit = _loss_fn(pos_weight, device)
     state = {"epoch": 0, "history": [], "best_auc": -1.0, "best_epoch": 0, "bad_epochs": 0, "done": False}
 
@@ -209,6 +225,8 @@ def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, de
         if ck.get("cfg") == cfg:
             model.load_state_dict(ck["model"])
             opt.load_state_dict(ck["optimizer"])
+            if sched is not None and ck.get("scheduler"):
+                sched.load_state_dict(ck["scheduler"])
             state = ck["state"]
             log(f"Kayıt bulundu: {state['epoch']}. turdan devam ediliyor.")
         else:
@@ -217,6 +235,7 @@ def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, de
     y_val = val_loader.dataset.y
     while not state["done"] and state["epoch"] < cfg["epochs"]:
         t0 = time.time()
+        lr_now = opt.param_groups[0]["lr"]
         model.train()
         total, n = 0.0, 0
         for xb, yb, wb in train_loader:
@@ -234,8 +253,10 @@ def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, de
         auc, pr_auc = roc_auc_score(y_val, p_val), average_precision_score(y_val, p_val)
         state["epoch"] += 1
         row = {"tur": state["epoch"], "eğitim kaybı": total / n, "doğrulama kaybı": val_loss,
-               "doğrulama AUC": auc, "doğrulama PR-AUC": pr_auc, "süre (sn)": time.time() - t0}
+               "doğrulama AUC": auc, "doğrulama PR-AUC": pr_auc, "süre (sn)": time.time() - t0, "lr": lr_now}
         state["history"].append(row)
+        if sched is not None:
+            sched.step(auc)
 
         mark = ""
         if auc > state["best_auc"]:
@@ -249,11 +270,10 @@ def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, de
                 mark = f"  → erken durdurma (en iyi tur: {state['best_epoch']})"
         log(f"tur {row['tur']:2d} | eğitim kaybı {row['eğitim kaybı']:.4f} | doğrulama kaybı {val_loss:.4f} | "
             f"AUC {auc:.4f} | PR-AUC {pr_auc:.4f} | {row['süre (sn)']:.0f} sn{mark}")
-        torch.save({"model": model.state_dict(), "optimizer": opt.state_dict(), "state": state, "cfg": cfg},
-                   last_path)
+        _save_checkpoint(last_path, model, opt, sched, state, cfg)
 
     state["done"] = True
-    torch.save({"model": model.state_dict(), "optimizer": opt.state_dict(), "state": state, "cfg": cfg}, last_path)
+    _save_checkpoint(last_path, model, opt, sched, state, cfg)
     model.load_state_dict(torch.load(best_path, map_location=device))
     history = pd.DataFrame(state["history"])
     history.to_json(out_dir / "history.json", orient="records", indent=1, force_ascii=False)
@@ -287,6 +307,19 @@ def metrics(y, p, threshold):
         "PR-AUC": average_precision_score(y, p) if len(set(y)) > 1 else float("nan"),
         "TP": int(tp), "FP": int(fp), "FN": int(fn), "TN": int(tn),
     }
+
+
+def breakdown(meta: pd.DataFrame, p, threshold):
+    """Seçilen eşikte kategoriye göre oranlar: hortumlarda yakalama (EF'ye göre), hortumsuzlarda yanlış alarm."""
+    pred = np.asarray(p) >= threshold
+    cat, ef = meta["category"].to_numpy(), meta["ef_number"].to_numpy()
+    tor = cat == "TOR"
+
+    def rate(mask):
+        return float(pred[mask].mean()) if mask.any() else float("nan")
+
+    return {"EF0–1 yakalama": rate(tor & (ef < 2)), "EF2+ yakalama": rate(tor & (ef >= 2)),
+            "WRN yanlış alarm": rate(cat == "WRN"), "NUL yanlış alarm": rate(cat == "NUL")}
 
 
 def save_results(out_dir, **items):
