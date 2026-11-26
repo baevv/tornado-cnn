@@ -1,0 +1,54 @@
+{
+  "repo": {
+    "url": "https://github.com/baevv/tornado-cnn.git",
+    "branch": "m"
+  },
+  "baselines": [
+    {
+      "name": "03_baseline",
+      "label": "TornadoCNN (Global Max, pos_weight)"
+    },
+    {
+      "name": "03_mit",
+      "label": "TornadoCNN (Global Max, mit)"
+    }
+  ],
+  "experiments": [
+    {
+      "name": "05_cnn_avg",
+      "label": "TornadoCNN (Global Avg)",
+      "arch": "tornado_cnn",
+      "model_kwargs": {"pool": "avg"},
+      "train": {},
+      "required": true,
+      "note": "Global Max vs Global Avg havuzlama ablasyonu"
+    },
+    {
+      "name": "05_resnet18_pretrained",
+      "label": "ResNet-18 (ön-eğitimli)",
+      "arch": "resnet18",
+      "model_kwargs": {"pretrained": true},
+      "train": {"lr": 0.0001},
+      "required": true,
+      "note": "ImageNet ön-eğitimli, [-1, 1] radar ölçeği, lr=1e-4"
+    },
+    {
+      "name": "05_resnet18_scratch",
+      "label": "ResNet-18 (sıfırdan)",
+      "arch": "resnet18",
+      "model_kwargs": {"pretrained": false},
+      "train": {"lr": 0.0001},
+      "required": true,
+      "note": "Rastgele başlangıç ağırlıkları, ön-eğitimli ile adil kıyas için lr=1e-4"
+    },
+    {
+      "name": "05_cnn_bn",
+      "label": "TornadoCNN (Global Max + BN)",
+      "arch": "tornado_cnn",
+      "model_kwargs": {"pool": "max", "batch_norm": true},
+      "train": {},
+      "required": false,
+      "note": "Conv2d -> BatchNorm2d -> ReLU -> MaxPool2d"
+    }
+  ]
+}

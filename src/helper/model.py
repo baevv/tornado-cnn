@@ -15,18 +15,28 @@ from torch import nn
 class TornadoCNN(nn.Module):
     """Radar görüntüsünden (kanal × 120 × 240) hortum logit'i üreten CNN."""
 
-    def __init__(self, in_channels=3, filters=(16, 32, 64, 128), hidden=64, dropout=0.3):
+    def __init__(self, in_channels=3, filters=(16, 32, 64, 128), hidden=64, dropout=0.3,
+                 pool="max", batch_norm=False):
         super().__init__()
         blocks, c_in = [], in_channels
         for c_out in filters:
+            blocks.append(nn.Conv2d(c_in, c_out, kernel_size=3, padding=1))   # padding=1: boyut korunur
+            if batch_norm:
+                blocks.append(nn.BatchNorm2d(c_out))
             blocks += [
-                nn.Conv2d(c_in, c_out, kernel_size=3, padding=1),   # padding=1: boyut korunur
                 nn.ReLU(),
-                nn.MaxPool2d(2),                                     # boyut yarıya iner
+                nn.MaxPool2d(2),                                              # boyut yarıya iner
             ]
             c_in = c_out
         self.features = nn.Sequential(*blocks)
-        self.pool = nn.AdaptiveMaxPool2d(1)     # global max havuzlama: hortum nerede olursa olsun
+
+        if pool == "max":
+            self.pool = nn.AdaptiveMaxPool2d(1)     # global max havuzlama: hortum nerede olursa olsun
+        elif pool == "avg":
+            self.pool = nn.AdaptiveAvgPool2d(1)     # global ortalama havuzlama (ablasyon için)
+        else:
+            raise ValueError(f"bilinmeyen havuzlama türü: {pool} ('max' veya 'avg' olmalı)")
+
         self.head = nn.Sequential(
             nn.Flatten(),
             nn.Linear(c_in, hidden),
@@ -38,6 +48,34 @@ class TornadoCNN(nn.Module):
     def forward(self, x):
         """x: (B, C, H, W) → (B, 1) logit. Olasılık için torch.sigmoid(logit)."""
         return self.head(self.pool(self.features(x)))
+
+
+def make_resnet18(in_channels=3, pretrained=True, dropout=0.3):
+    """İkili hortum sınıflandırması için ResNet-18 (transfer öğrenme veya sıfırdan).
+
+    Çıktı: (B, 1) logit (TornadoCNN ile aynı arayüz; train.py ile doğrudan uyumlu).
+    """
+    from torchvision.models import ResNet18_Weights, resnet18
+
+    weights = ResNet18_Weights.DEFAULT if pretrained else None
+    net = resnet18(weights=weights)
+    if in_channels != 3:
+        old = net.conv1
+        net.conv1 = nn.Conv2d(in_channels, old.out_channels, kernel_size=old.kernel_size,
+                              stride=old.stride, padding=old.padding, bias=False)
+    in_features = net.fc.in_features
+    net.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(in_features, 1)) if dropout > 0 else nn.Linear(in_features, 1)
+    return net
+
+
+def build_model(arch: str, in_channels=3, dropout=0.3, **kwargs):
+    """Config adından model kurar ('tornado_cnn' veya 'resnet18')."""
+    key = arch.lower()
+    if key == "tornado_cnn":
+        return TornadoCNN(in_channels=in_channels, dropout=dropout, **kwargs)
+    if key == "resnet18":
+        return make_resnet18(in_channels=in_channels, dropout=dropout, **kwargs)
+    raise ValueError(f"bilinmeyen mimari: {arch} ('tornado_cnn' veya 'resnet18' olmalı)")
 
 
 def count_params(model) -> int:
@@ -59,11 +97,16 @@ def layer_table(model, input_shape=(3, 120, 240)):
     def hook(module, inp, out):
         if isinstance(module, nn.Conv2d):
             kh, kw = module.kernel_size
-            manual = (kh * kw * module.in_channels + 1) * module.out_channels
-            formula = f"({kh}·{kw}·{module.in_channels} + 1) · {module.out_channels}"
+            has_bias = module.bias is not None
+            manual = (kh * kw * module.in_channels + (1 if has_bias else 0)) * module.out_channels
+            formula = f"({kh}·{kw}·{module.in_channels}" + (" + 1" if has_bias else "") + f") · {module.out_channels}"
         elif isinstance(module, nn.Linear):
-            manual = (module.in_features + 1) * module.out_features
-            formula = f"({module.in_features} + 1) · {module.out_features}"
+            has_bias = module.bias is not None
+            manual = (module.in_features + (1 if has_bias else 0)) * module.out_features
+            formula = f"({module.in_features}" + (" + 1" if has_bias else "") + f") · {module.out_features}"
+        elif isinstance(module, nn.BatchNorm2d):
+            manual = 2 * module.num_features if module.affine else 0
+            formula = f"2 · {module.num_features}" if module.affine else ""
         else:
             manual, formula = 0, ""
         n = sum(p.numel() for p in module.parameters() if p.requires_grad)
