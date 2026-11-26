@@ -63,11 +63,62 @@ def processed_dir() -> Path:
     return path
 
 
-def models_dir(name: str) -> Path:
-    """Eğitilen bir modelin kalıcı klasörü: <proje>/models/<name> (Colab'da Drive).
+def models_root() -> Path:
+    """Eğitilen modellerin kök klasörü ($TORNADO_MODELS_DIR varsa onu, yoksa data_dir()/../models kullanır)."""
+    default = data_dir().parent / "models"
+    return _resolve("TORNADO_MODELS_DIR", str(default), default)
 
-    Veri klasörünün (data/) yanında durur; ağırlıklar, eğitim geçmişi ve sonuçlar buraya yazılır.
-    """
-    path = data_dir().parent / "models" / name
+
+def models_dir(name: str) -> Path:
+    """Eğitilen bir modelin kalıcı klasörü: <models_root>/<name> (Colab'da Drive)."""
+    path = models_root() / name
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _is_writable_dir(path: Path) -> bool:
+    """Klasörün oluşturulup yazılabildiğini test eder (paylaşılan Drive salt-okunur olabilir)."""
+    probe = path / ".write_probe"
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def prepare_colab_dirs() -> tuple[Path, Path]:
+    """Colab'da veri ve model klasörlerini hazırlar; Drive kısayollarını otomatik bulur.
+
+    Paylaşılan Drive klasörü 'Drive'ım' içine kısayol olarak eklendiyse (adı ne olursa olsun)
+    splits.csv'yi bulup TORNADO_DATA_DIR olarak ayarlar. Paylaşılan klasör salt-okunursa
+    modellerin yazılacağı yeri kullanıcının kendi Drive'ına (TORNADO_MODELS_DIR) yönlendirir.
+    """
+    if not in_colab() or os.environ.get("TORNADO_DATA_DIR"):
+        return data_dir(), models_root()
+
+    sub = load_config()["drive_subdir"]
+    mydrive = Path("/content/drive/MyDrive")
+    default_data = mydrive / sub / "data"
+
+    if (default_data / "splits.csv").exists():
+        found_data = default_data
+    else:
+        hits = [*mydrive.glob("*/splits.csv"), *mydrive.glob("*/*/splits.csv"), *mydrive.glob("*/*/*/splits.csv")]
+        with_proc = [p.parent for p in hits if (p.parent / "processed").is_dir()]
+        candidates = with_proc or [p.parent for p in hits]
+        if not candidates:
+            raise FileNotFoundError(
+                "Drive'ım içinde splits.csv bulunamadı.\n"
+                "Paylaşılan Drive klasörünü açıp 'Kısayol ekle → Drive'ım (MyDrive)' yaptıktan sonra "
+                "bu hücreyi tekrar çalıştırın."
+            )
+        found_data = candidates[0]
+        os.environ["TORNADO_DATA_DIR"] = str(found_data)
+
+    shared_models = found_data.parent / "models"
+    if not os.environ.get("TORNADO_MODELS_DIR") and not _is_writable_dir(shared_models):
+        os.environ["TORNADO_MODELS_DIR"] = str(mydrive / sub / "models")
+
+    return data_dir(), models_root()
