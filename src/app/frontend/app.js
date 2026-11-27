@@ -503,12 +503,12 @@ function renderToolbars() {
     requestAnimationFrame(drawStrip);
   } else if (S.tab === 'kars') {
     const k = A.kars;
-    pickDock($('ks-models'), modelItems(), k.models, (id, b) => {
+    pickDock($('ks-models'), k.items || modelItems(), k.models, (id, b) => {
       const on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', on);
       const keys = [...$('ks-models').querySelectorAll('button')].filter(x => x.getAttribute('aria-pressed') === 'true').map(x => x.dataset.id);
       send('kars_models', {keys});
     }, 'tog');
-    const CHARTS = [['roc', 'roc', 'ROC', 'ROC eğrisi'], ['pr', 'pr', 'PR', 'Precision–Recall'], ['cm', 'grid', 'Karmaşıklık', 'Karmaşıklık matrisi'], ['learn', 'trend', 'Öğrenme', 'Öğrenme eğrileri'], ['hp', 'sliders', 'Hiperparametre', 'Hiperparametre tablosu']];
+    const CHARTS = [['table', 'layers', 'Tablo', 'Ölçüt tablosu: %95 güven aralığı, Δ ve NC / RC / WC'], ['roc', 'roc', 'ROC', 'ROC eğrisi'], ['pr', 'pr', 'PR', 'Precision–Recall'], ['perf', 'crosshair', 'Performans', 'Performans diyagramı (SR–POD, CSI)'], ['rel', 'check-c', 'Güvenilirlik', 'Güvenilirlik diyagramı (kalibrasyon)'], ['ef', 'flame', 'EF', 'EF\'ye göre skor dağılımı'], ['range', 'ruler', 'Uzaklık', 'Radara uzaklığa göre başarım'], ['cm', 'grid', 'Karmaşıklık', 'Karmaşıklık matrisi'], ['learn', 'trend', 'Öğrenme', 'Öğrenme eğrileri'], ['hp', 'sliders', 'Hiperparametre', 'Hiperparametre tablosu']];
     pickDock($('ks-chart'), CHARTS.map(([id, icon, name, tip]) => ({id, icon, name, tip})), k.chart, id => { setPressed($('ks-chart'), id); send('kars_chart', {chart: id}); });
     pickDock($('ks-split'), splitItems(['val', 'test']), k.split, id => { setPressed($('ks-split'), id); send('kars_split', {split: id}); });
   } else if (S.tab === 'hata') {

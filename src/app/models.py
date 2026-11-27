@@ -35,6 +35,7 @@ class ModelInfo:
     kwargs: dict
     color: str = "#0072B2"
     history: list = field(default_factory=list)
+    members: list = field(default_factory=list)    # boş değilse seed ensemble'ı (O3): skor = üyelerin ortalaması
 
     @property
     def preds_path(self) -> Path:

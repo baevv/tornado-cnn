@@ -76,6 +76,103 @@ def score_hist(probs: np.ndarray, cats: np.ndarray, thr: float, title="Skor dağ
     return f
 
 
+# ---------------------------------------------------------------- değerlendirme grafikleri (M4)
+
+def _rgba(hex_color: str, a: float) -> str:
+    h = hex_color.lstrip("#")
+    return f"rgba({int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)},{a})"
+
+
+def perf_diagram(curves: list, height=520) -> go.Figure:
+    """Performans diyagramı (Roebber, 2009). curves: [(etiket, renk, y, p, eşik)].
+    x = SR (isabet), y = POD (yakalama); dolgu CSI, kesikli doğrular frekans yanlılığı; nokta = seçilen eşik."""
+    from sklearn.metrics import precision_recall_curve
+
+    from src.helper.evaluate import decision_scores
+    f = _fig(title=dict(text="Performans diyagramı"), height=height)
+    g = np.linspace(0.01, 1, 120)
+    S, P = np.meshgrid(g, g)
+    f.add_contour(x=g, y=g, z=1 / (1 / S + 1 / P - 1), contours=dict(start=0.1, end=0.9, size=0.1, coloring="fill",
+                  showlabels=True, labelfont=dict(size=10, color=T.MUTED)),
+                  colorscale=[[0, T.PANEL], [1, "#C3CCD8"]], showscale=False, line=dict(width=0.6, color=T.LINE),
+                  hoverinfo="skip", name="CSI")
+    for b in (0.5, 1, 1.5, 2, 4):
+        x = np.array([0, min(1, 1 / b)])
+        f.add_scatter(x=x, y=b * x, mode="lines", line=dict(color=T.FAINT, dash="dash", width=1), showlegend=False,
+                      hoverinfo="skip")
+        f.add_annotation(x=min(0.97, 0.97 / b), y=b * min(0.97, 0.97 / b), text=f"{b:g}", showarrow=False,
+                         font=dict(size=10, color=T.MUTED), yshift=8)
+    for lab, col, y, p, thr in curves:
+        prec, rec, _ = precision_recall_curve(y, p)
+        f.add_scatter(x=prec[:-1], y=rec[:-1], mode="lines", name=lab, line=dict(color=col, width=2.2),
+                      hovertemplate="SR %{x:.3f}<br>POD %{y:.3f}<extra>" + lab + "</extra>")
+        d = decision_scores(y, p, thr)
+        f.add_scatter(x=[d["SR"]], y=[d["POD"]], mode="markers", showlegend=False,
+                      marker=dict(color=col, size=11, line=dict(color=T.INK, width=1.2)),
+                      hovertemplate=(f"eşik {thr:.3f}<br>SR {d['SR']:.3f} · POD {d['POD']:.3f}<br>CSI {d['CSI']:.3f}"
+                                     f" · Bias {d['Bias']:.2f}<extra>{lab}</extra>"))
+    f.update_xaxes(title="başarı oranı SR = 1 − FAR", range=[0, 1], constrain="domain")
+    f.update_yaxes(title="yakalama POD", range=[0, 1], scaleanchor="x", scaleratio=1, constrain="domain")
+    return f
+
+
+def reliability(items: list, bins=10, height=520) -> go.Figure:
+    """Güvenilirlik diyagramı. items: [(etiket, renk, y, p)]. Altta skor histogramı (log)."""
+    from plotly.subplots import make_subplots
+
+    from src.helper.evaluate import brier, reliability as rel
+    f = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.74, 0.26], vertical_spacing=0.04)
+    f.update_layout(**T.plotly_layout(title=dict(text="Güvenilirlik diyagramı"), height=height))
+    f.add_scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(color=T.LINE, dash="dash", width=1), showlegend=False,
+                  hoverinfo="skip", row=1, col=1)
+    edges = np.linspace(0, 1, bins + 1)
+    for lab, col, y, p in items:
+        r = rel(y, p, bins)
+        ok = r["n"] > 0
+        f.add_scatter(x=r.loc[ok, "ortalama skor"], y=r.loc[ok, "gerçekleşen oran"], mode="lines+markers",
+                      name=f"{lab} · Brier {brier(y, p):.3f}", line=dict(color=col, width=2.2), marker=dict(size=6),
+                      customdata=r.loc[ok, "n"],
+                      hovertemplate="skor %{x:.2f}<br>gerçekleşen %{y:.3f}<br>%{customdata} kare<extra>" + lab + "</extra>",
+                      row=1, col=1)
+        cnt, _ = np.histogram(p, bins=edges)
+        f.add_scatter(x=np.repeat(edges, 2)[1:-1], y=np.repeat(cnt, 2), mode="lines", line=dict(color=col, width=1.5),
+                      showlegend=False, hoverinfo="skip", row=2, col=1)
+    f.update_yaxes(title="gerçekleşen hortum oranı", range=[0, 1.01], row=1, col=1)
+    f.update_yaxes(title="kare", type="log", row=2, col=1)
+    f.update_xaxes(range=[0, 1], row=1, col=1)
+    f.update_xaxes(title="model skoru", range=[0, 1], row=2, col=1)
+    return f
+
+
+def ef_box(groups: list, height=440) -> go.Figure:
+    """EF'ye göre skor dağılımı. groups: [(etiket, renk, sınıflar, skorlar, eşik)] (sınıf: EF0 … EF3+, WRN, NUL)."""
+    from src.helper.evaluate import EF_ORDER
+    f = _fig(title=dict(text="EF'ye göre skor dağılımı"), height=height, boxmode="group")
+    for lab, col, cls, p, thr in groups:
+        keep = np.isin(cls, EF_ORDER)
+        f.add_box(x=cls[keep], y=p[keep], name=f"{lab} · eşik {thr:.2f}", marker_color=col, boxpoints=False,
+                  line=dict(width=1.5), fillcolor=_rgba(col, 0.25))
+    f.update_xaxes(title="sınıf", categoryorder="array", categoryarray=EF_ORDER)
+    f.update_yaxes(title="model skoru", range=[0, 1.01])
+    return f
+
+
+def range_lines(tables: list, height=400) -> go.Figure:
+    """Radara uzaklığa göre ROC-AUC (sol) ve POD (sağ). tables: [(etiket, renk, range_table)]."""
+    from plotly.subplots import make_subplots
+    f = make_subplots(rows=1, cols=2, subplot_titles=("ROC-AUC", "POD (seçilen eşikte)"), horizontal_spacing=0.08)
+    f.update_layout(**T.plotly_layout(title=dict(text="Radara uzaklığa göre başarım"), height=height))
+    for lab, col, t in tables:
+        x = [f"{i}<br>{h} hortum" for i, h in zip(t.index, t["hortum"])]
+        for c, k in ((1, "ROC-AUC"), (2, "POD")):
+            f.add_scatter(x=x, y=t[k], mode="lines+markers", name=lab, legendgroup=lab, showlegend=c == 1,
+                          line=dict(color=col, width=2.2), marker=dict(size=7),
+                          hovertemplate="%{x}<br>" + k + " %{y:.3f}<extra>" + lab + "</extra>", row=1, col=c)
+    f.update_xaxes(title="pencere merkezinin radara uzaklığı", title_font=dict(size=11))
+    f.update_layout(legend=dict(orientation="h", x=0, y=-0.38, yanchor="top"), margin=dict(b=120))
+    return f
+
+
 # ---------------------------------------------------------------- küçük radar resimleri (Hata Analizi)
 
 def _ramp(stops):
