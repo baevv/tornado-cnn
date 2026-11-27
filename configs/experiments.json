@@ -17,7 +17,11 @@
     {
       "name": "03_mit",
       "label": "TornadoCNN (Global Max, mit)",
-      "short": "Baseline CNN · mit"
+      "short": "Baseline CNN · mit",
+      "arch": "tornado_cnn",
+      "model_kwargs": {"pool": "max"},
+      "train": {"weighting": "mit"},
+      "note": "Karar S3: TorNet örnek ağırlıkları (WRN 0,5; NUL 1; EF0–1 1; EF2+ 2), pos_weight = 1"
     }
   ],
   "experiments": [
