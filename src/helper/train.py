@@ -236,7 +236,7 @@ def _loss_fn(pos_weight, device):
 
 @torch.no_grad()
 def predict(model, loader, variables, device, pos_weight=1.0):
-    """Bir kümenin hortum olasılıkları ve ortalama kaybı."""
+    """Bir kümenin model skorları (sigmoid) ve ortalama kaybı."""
     model.eval()
     crit = _loss_fn(pos_weight, device)
     probs, total, n = [], 0.0, 0
@@ -281,7 +281,7 @@ def train_loss(logit, y, w, pos_weight: float, ls: float = 0.0):
     ls = 0: BCEWithLogitsLoss(pos_weight) (temel model).
     ls > 0: Sınıf dengesi pos_weight yerine ÖRNEK AĞIRLIĞIYLA verilir (pozitif örneğin kaybının tamamı
       pos_weight ile çarpılır). ls = 0'da ikisi matematiksel olarak aynıdır. Fark: pos_weight yalnız
-      "hortum" terimini çarptığı için 1 → 0,9 hedefinde kaybı en küçük yapan olasılık 0,991 olurdu
+      "hortum" terimini çarptığı için 1 → 0,9 hedefinde kaybı en küçük yapan çıktı 0,991 olurdu
       (smoothing neredeyse etkisiz); örnek ağırlığıyla gerçekten 0,9 olur (karar O2).
     """
     if not ls:
@@ -417,7 +417,7 @@ def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, de
 # ---------------------------------------------------------------- ölçütler
 
 def choose_threshold(y, p):
-    """Karar eşiği: doğrulama kümesinde F1'i en yüksek yapan olasılık değeri."""
+    """Karar eşiği: doğrulama kümesinde F1'i en yüksek yapan skor değeri."""
     from sklearn.metrics import precision_recall_curve
     prec, rec, thr = precision_recall_curve(y, p)
     f1 = 2 * prec * rec / np.clip(prec + rec, 1e-12, None)

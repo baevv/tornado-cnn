@@ -71,7 +71,7 @@ def score_hist(probs: np.ndarray, cats: np.ndarray, thr: float, title="Skor dağ
                             opacity=0.75 if c == "TOR" else 0.55, histnorm="probability",
                             hovertemplate="skor %{x}<br>oran %{y:.3f}<extra>" + c + "</extra>")
     f.add_vline(x=thr, line=dict(color=T.INK, width=1.5, dash="dash"))
-    f.update_xaxes(title="hortum olasılığı", range=[0, 1])
+    f.update_xaxes(title="model skoru", range=[0, 1])
     f.update_yaxes(title="oran (kategori içinde)")
     return f
 
@@ -225,7 +225,7 @@ METHOD_NAMES = {"cam": "Grad-CAM", "ig": "Integrated Gradients", "occ": "Occlusi
 
 
 def shap_waterfall(base: float, phi, variables, score: float, thr: float, height=330) -> go.Figure:
-    """Kanal SHAP şelalesi: taban → +her kanal → skor (olasılık ölçeği)."""
+    """Kanal SHAP şelalesi: taban → +her kanal → skor (0–1 skor ölçeği)."""
     labels, bases, widths, colors, texts = ["taban"], [0.0], [base], [T.NUL], [f"{base:.3f}"]
     cur = base
     for v, d in zip(variables, phi):
@@ -243,7 +243,7 @@ def shap_waterfall(base: float, phi, variables, score: float, thr: float, height
     f.add_vline(x=thr, line=dict(color=T.INK, width=1.5, dash="dash"), annotation_text="eşik", annotation_position="top",
                 annotation_font=dict(size=10, color=T.MUTED))
     f.update_yaxes(autorange="reversed", showgrid=False)
-    f.update_xaxes(range=[0, 1.05], title="hortum olasılığı")
+    f.update_xaxes(range=[0, 1.05], title="model skoru")
     return f
 
 

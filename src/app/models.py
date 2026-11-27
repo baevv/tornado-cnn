@@ -109,7 +109,7 @@ def discover(root: Path | None = None) -> list[ModelInfo]:
 
 
 def load_preds(info: ModelInfo) -> pd.Series:
-    """filename → hortum olasılığı."""
+    """filename → model skoru (0–1)."""
     df = pd.read_parquet(info.preds_path, columns=["filename", "prob"])
     return df.set_index("filename")["prob"]
 
@@ -158,7 +158,7 @@ def load_model(info: ModelInfo, device="cpu"):
 
 
 def predict_images(net, q: np.ndarray, variables, batch=128, device="cpu", r0_km=None) -> np.ndarray:
-    """uint8 (N, C, H, W) → hortum olasılıkları (N,). r0_km (N,): kare başına rng_min, km (CoordConv modeli için)."""
+    """uint8 (N, C, H, W) → model skorları (N,). r0_km (N,): kare başına rng_min, km (CoordConv modeli için)."""
     import torch
 
     from src.helper.model import bind_range

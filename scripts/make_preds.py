@@ -1,4 +1,4 @@
-"""Her modelin bütün örnekler için hortum olasılığını bir kez hesaplar: models/<ad>/preds.parquet.
+"""Her modelin bütün örnekler için skorunu (sigmoid çıktısı) bir kez hesaplar: models/<ad>/preds.parquet.
 
 Arayüz skorları buradan okur; böylece fırtına şeridi, karşılaştırma eğrileri ve hata listesi anında açılır.
 Önce scripts/export_npy.py çalıştırılmış olmalı.
@@ -9,7 +9,7 @@ Kullanım (repo kökünden):
     python scripts/make_preds.py --split test val      # yalnız bu bölümler (varsayılan: hepsi)
     python scripts/make_preds.py --force               # hepsini yeniden hesapla
 
-Çıktı sütunları: filename, prob (sigmoid olasılığı).
+Çıktı sütunları: filename, prob (sigmoid skoru; adı eski, kalibre olasılık değildir, karar X8).
 """
 import argparse
 import sys

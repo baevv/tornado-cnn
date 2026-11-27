@@ -53,7 +53,7 @@ def _aligned(path: str, stamp: float, filenames: tuple | None, n: int, _samples:
 
 
 def probs(info, samples: pd.DataFrame) -> np.ndarray | None:
-    """samples sırasıyla hortum olasılıkları (skoru olmayan örnekte NaN); preds.parquet yoksa None."""
+    """samples sırasıyla model skorları (skoru olmayan örnekte NaN); preds.parquet yoksa None."""
     if not info.has_preds:
         return None
     return _aligned(str(info.preds_path), _mtime(info.preds_path), None, len(samples), samples)

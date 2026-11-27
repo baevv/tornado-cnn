@@ -53,7 +53,7 @@ def _x(q: np.ndarray, variables, device) -> torch.Tensor:
 
 @torch.no_grad()
 def predict(net, q: np.ndarray, variables, batch=128) -> np.ndarray:
-    """uint8 (N, C, H, W) → hortum olasılıkları (N,)."""
+    """uint8 (N, C, H, W) → model skorları (N,)."""
     dev, out = _device(net), []
     for i in range(0, len(q), batch):
         out.append(torch.sigmoid(net(_x(q[i:i + batch], variables, dev)).squeeze(1)).cpu().numpy())
@@ -117,7 +117,7 @@ def integrated_gradients(net, q: np.ndarray, variables, steps=32) -> np.ndarray:
 
 @torch.no_grad()
 def occlusion(net, q: np.ndarray, variables, patch=10, batch=96) -> np.ndarray:
-    """Tek kare (C, H, W): her `patch` × `patch` yama sırayla kapatılınca olasılıktaki düşüş, (H, W).
+    """Tek kare (C, H, W): her `patch` × `patch` yama sırayla kapatılınca skordaki düşüş, (H, W).
 
     Pozitif = o bölge hortum kararını destekliyor. 120 × 240 ve patch=10 için 12 × 24 = 288 ileri geçiş.
     """
@@ -141,7 +141,7 @@ def occlusion(net, q: np.ndarray, variables, patch=10, batch=96) -> np.ndarray:
 
 @torch.no_grad()
 def channel_shapley(net, q: np.ndarray, variables) -> dict:
-    """Kanalların kesin Shapley değerleri, olasılık ölçeğinde.
+    """Kanalların kesin Shapley değerleri, skor (0–1) ölçeğinde.
 
     q: (N, C, H, W). Bir kanalın "yokluğu" = o kanal tamamen boş (uint8 0).
     Döner: {"base": (N,) hiçbir kanal yokken skor, "score": (N,) gerçek skor, "phi": (N, C)}.
@@ -268,7 +268,7 @@ def explain_frame(net, q: np.ndarray, variables, rot_cell=None, az0=0.0, r0=0.0,
     """Bir kare (C, H, W) için bütün açıklamalar ve ölçüler.
 
     Döner:
-      score, base, phi (C,)               kanal SHAP (olasılık)
+      score, base, phi (C,)               kanal SHAP (skor)
       maps {cam, ig, occ}: (H, W) 0..1    gösterim haritaları
       ig_ch: (C, H, W) 0..1               IG, kanal kanal (aynı ölçek)
       peaks {yöntem: (i, j)}, dist_km {yöntem: km}   açıklama zirvesi ve en güçlü dönmeye uzaklığı

@@ -70,7 +70,7 @@ def _probs(info, store) -> np.ndarray | None:
 
 
 def split_scores(info, store, split: str):
-    """(örnek tablosu, olasılıklar) seçili bölüm için; skor yoksa (None, None)."""
+    """(örnek tablosu, skorlar) seçili bölüm için; skor yoksa (None, None)."""
     if store is None:
         return None, None
     p = _probs(info, store)

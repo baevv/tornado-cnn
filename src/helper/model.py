@@ -70,7 +70,7 @@ class TornadoCNN(nn.Module):
         )
 
     def forward(self, x, r0_km=None):
-        """x: (B, C, H, W) → (B, 1) logit. Olasılık için torch.sigmoid(logit).
+        """x: (B, C, H, W) → (B, 1) logit. 0–1 skor için torch.sigmoid(logit); pos_weight yüzünden kalibre bir olasılık değildir (X8).
 
         coord=True ise r0_km (B,) verilmelidir: her örneğin ilk mesafe hücresinin radara uzaklığı, km.
         """
