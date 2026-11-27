@@ -35,7 +35,15 @@ METHOD_DESC = {
           "düzeyindedir; harita gösterim için hafifçe yumuşatıldı.",
     "occ": "Occlusion her seferinde 10 × 10 piksellik bir yamayı boş değerle kapatır ve skorun ne kadar düştüğünü ölçer "
            "(288 ileri geçiş). Modelin içine bakmaz; doğrudan etkiyi gösterir.",
+    "loc": "Konum haritası modelin kendi sınıflandırıcısını, global havuzlamadan önceki özellik haritasının her konumuna "
+           "ayrı ayrı uygular (TornadoCNN'de 7 × 15, ResNet-18'de 4 × 8): \"bu konum tek başına olsaydı skor ne olurdu?\". "
+           "Değerler skor ölçeğindedir. Global max havuzlama her kanalın en büyüğünü farklı konumlardan alabildiği için "
+           "kararın yalnızca bir yaklaşığıdır.",
 }
+# 01 defteri D3: tek değişkenli ayırt edicilik (AUC, merkezde özet ölçü). TOR ↔ diğerleri ve TOR ↔ WRN.
+EDA_AUC = {"DBZ": 0.624, "VEL": 0.764, "WIDTH": 0.685}
+EDA_AUC_WRN = {"DBZ": 0.520, "VEL": 0.685, "WIDTH": 0.582}
+SHAP_FILE, ROT_FILE = "shap_all.parquet", "rotation.parquet"
 
 
 def fmt(v, d=2) -> str:
@@ -182,6 +190,10 @@ def frame_bullets(e: dict, variables, method: str, thr: float, rot) -> list:
             msg += " Zirve görüntünün kenarında; bu, verideki bir kenar etkisine dayanıldığını düşündürür."
         out.append((T.INK, msg))
 
+    if method == "loc" and e.get("loc_gap") is not None:
+        g = e["loc_gap"]
+        out.append((P.METHOD_COLORS["loc"], f"Konum haritası bir yaklaşıktır: gerçek logit ile haritanın en büyüğü "
+                                            f"arasındaki fark {fmt(g, 2)} ({'küçük, harita kararı iyi temsil ediyor' if abs(g) < 0.5 else 'büyük, harita kararı yalnızca kabaca temsil ediyor'})."))
     a, ar = e["auc"][method], e["auc"]["rnd"]
     if score < thr:
         out.append((P.METHOD_COLORS[method], "Model bu karede zaten \"hortum yok\" diyor; silme testi düşük bir skoru "
@@ -310,8 +322,8 @@ def global_findings(df: pd.DataFrame, variables, method: str) -> list:
             out.append((P.CHANNEL_COLORS.get(v, T.INK), f"Yanlış alarmlarda {v} kanalının payı doğru negatiflere göre "
                                                         f"{100 * dv:.0f} puan yüksek: yanlış alarmları en çok bu kanaldaki sinyal tetikliyor."))
     col = f"dist_{method}"
-    tp = by["tp"][col].dropna() if len(by["tp"]) else pd.Series(dtype=float)
-    fn = by["fn"][col].dropna() if len(by["fn"]) else pd.Series(dtype=float)
+    tp = by["tp"][col].dropna() if len(by["tp"]) and col in df else pd.Series(dtype=float)
+    fn = by["fn"][col].dropna() if len(by["fn"]) and col in df else pd.Series(dtype=float)
     if len(tp):
         msg = (f"{P.METHOD_NAMES[method]} zirvesinin en güçlü dönmeye {fmt(NEAR_KM, 0)} km'den yakın olduğu kareler: "
                f"doğru pozitiflerde %{100 * (tp <= NEAR_KM).mean():.0f} (ortanca {fmt(tp.median(), 1)} km)")
@@ -322,15 +334,16 @@ def global_findings(df: pd.DataFrame, variables, method: str) -> list:
         out.append((T.INK, msg))
     pos = df[df["kind"].isin(["tp", "fp"])]
     if len(pos):
-        aucs = {k: pos[f"auc_{k}"].mean() for k in ("cam", "ig", "occ", "rnd")}
-        best = min(("cam", "ig", "occ"), key=aucs.get)
-        worse = [P.METHOD_NAMES[k] for k in ("cam", "ig", "occ") if aucs[k] >= aucs["rnd"]]
+        meths = [k for k in ("cam", "ig", "occ", "loc") if f"auc_{k}" in pos]
+        aucs = {k: pos[f"auc_{k}"].mean() for k in (*meths, "rnd")}
+        best = min(meths, key=aucs.get)
+        worse = [P.METHOD_NAMES[k] for k in meths if aucs[k] >= aucs["rnd"]]
         msg = (f"Sadakat: \"hortum\" denen karelerde en hızlı skor düşüşü {P.METHOD_NAMES[best]} sırasıyla "
                f"(ortalama alan {fmt(aucs[best], 3)}, rastgele {fmt(aucs['rnd'], 3)}).")
         if worse:
             msg += f" {', '.join(worse)} ortalamada rastgeleden iyi değil."
         out.append((P.METHOD_COLORS[best], msg))
-    sc = [c for c in ("sanity_cam", "sanity_ig", "sanity_occ") if c in df]
+    sc = [c for c in ("sanity_cam", "sanity_ig", "sanity_occ", "sanity_loc") if c in df]
     if sc:
         v = {c[7:]: df[c].mean() for c in sc if df[c].notna().any()}
         if v:
@@ -354,6 +367,12 @@ def _global(ss, store, models, info):
     split = df["split"].dropna().unique().tolist() if "split" in df else []
     n_by = df["kind"].value_counts()
 
+    if f"dist_{method}" not in df:
+        st.html(f"<div class='note'>{info.label} için kayıtlı toplu sonuçlarda {P.METHOD_NAMES[method]} yok (eski "
+                f"xai.parquet). Yeniden hesapla: <code>python scripts/make_xai.py --models {info.key} --force</code>. "
+                "Aşağıda veri seti geneli bölümler yine gösterilir.</div>")
+        _dataset_sections(store, info)
+        return
     tp = df[df["kind"] == "tp"]
     d = tp[f"dist_{method}"].dropna()
     pos = df[df["kind"].isin(["tp", "fp"])]
@@ -387,22 +406,26 @@ def _global(ss, store, models, info):
             if t is None:
                 continue
             pp = t[t["kind"].isin(["tp", "fp"])]
-            tab.append({"model": m.label, **{P.METHOD_NAMES[k]: round(float(pp[f"auc_{k}"].mean()), 3) for k in ("cam", "ig", "occ", "rnd")},
+            tab.append({"model": m.label, **{P.METHOD_NAMES[k]: round(float(pp[f"auc_{k}"].mean()), 3)
+                                             for k in ("cam", "ig", "occ", "loc", "rnd") if f"auc_{k}" in pp},
                         "kare": len(pp)})
         if tab:
             tdf = pd.DataFrame(tab)
-            meth_cols = [P.METHOD_NAMES[k] for k in ("cam", "ig", "occ")]
+            meth_cols = [P.METHOD_NAMES[k] for k in ("cam", "ig", "occ", "loc") if P.METHOD_NAMES[k] in tdf]
             st.dataframe(tdf.style.highlight_min(subset=meth_cols, axis=1, color="#DDF1E8")
                          .format({c: "{:.3f}" for c in [*meth_cols, P.METHOD_NAMES["rnd"]]}),
                          use_container_width=True, hide_index=True)
     with c4:
-        sv = {k: float(df[f"sanity_{k}"].mean()) for k in ("cam", "ig", "occ")
+        sv = {k: float(df[f"sanity_{k}"].mean()) for k in ("cam", "ig", "occ", "loc")
               if f"sanity_{k}" in df and df[f"sanity_{k}"].notna().any()}
         if sv:
             st.plotly_chart(P.sanity_bars(sv, method, height=250), use_container_width=True, config=CFG)
 
     st.html("<div class='xbox'><div class='h-panel'>Bulgular</div>" + _bullets_html(global_findings(df, variables, method))
             + "<div class='xd'>Cümleler yukarıdaki ölçülerden otomatik üretilir.</div></div>")
+
+    _loc_check(df)
+    _dataset_sections(store, info)
 
     _gallery(ss, store, info, df, method, variables)
 
@@ -451,3 +474,91 @@ def _gallery(ss, store, info, df, method, variables):
                 frames = store.frames(srow["episode_id"])
                 open_frame(ss, srow["episode_id"], list(frames.index).index(sm.index[0]), info.key)
                 st.rerun()
+
+
+# ---------------------------------------------------------------- veri seti geneli (X2, X3, X4)
+
+@st.cache_data(show_spinner=False, max_entries=16)
+def _parquet(path: str, stamp: float) -> pd.DataFrame:
+    return pd.read_parquet(path)
+
+
+def _loc_check(df: pd.DataFrame):
+    """X4 dürüstlük kontrolleri: haritanın gerçek logit'ten farkı ve sadakatin Grad-CAM ile karşılaştırması."""
+    if "loc_gap" not in df or not df["loc_gap"].notna().any():
+        return
+    g = df["loc_gap"].dropna()
+    pos = df[df["kind"].isin(["tp", "fp"])]
+    a_loc, a_cam, a_rnd = (pos[f"auc_{k}"].mean() for k in ("loc", "cam", "rnd"))
+    verdict = ("Grad-CAM'den sadık" if a_loc < a_cam else "Grad-CAM kadar sadık değil")
+    st.html("<div class='xbox'><div class='h-panel'>Konum haritası · dürüstlük kontrolleri (X4)</div>"
+            + _bullets_html([
+                (P.METHOD_COLORS["loc"], f"Gerçek logit − haritanın en büyüğü: ortanca {fmt(g.median(), 2)}, "
+                                         f"|fark| ortancası {fmt(g.abs().median(), 2)} (çeyrekler arası "
+                                         f"{fmt(g.quantile(0.25), 2)} … {fmt(g.quantile(0.75), 2)}, {len(g)} kare). "
+                                         "Sıfıra yakın değilse harita kararı yalnızca yaklaşık temsil eder."),
+                (P.METHOD_COLORS["loc"], f"Silme eğrisi alanı (hortum denen kareler): konum haritası {fmt(a_loc, 3)}, "
+                                         f"Grad-CAM {fmt(a_cam, 3)}, rastgele {fmt(a_rnd, 3)} → {verdict}."),
+            ]) + "</div>")
+
+
+def _dataset_sections(store, info):
+    if store is None:
+        return
+    test = store.samples[store.samples["split"] == "test"]
+    shp = info.folder / SHAP_FILE
+    if shp.exists():
+        sh = _parquet(str(shp), cache._mtime(shp)).merge(test[["filename", "category"]], on="filename", how="left")
+        variables = [c[4:] for c in sh.columns if c.startswith("phi_")]
+        rows = [(f"{CAT_TR.get(c, c)} · {int((sh['category'] == c).sum()):,}".replace(",", "."),
+                 shares(sh[sh["category"] == c], variables)) for c in ("TOR", "WRN", "NUL")]
+        rows += [(f"{KIND_TR[k]} · {int((sh['kind'] == k).sum()):,}".replace(",", "."), shares(sh[sh["kind"] == k], variables))
+                 for k in ("tp", "fn", "fp")]
+        st.html("<div class='h-panel'>Kanal katkısı · bütün test kümesi (X3)</div>")
+        c1, c2 = st.columns([1.2, 1], gap="small")
+        c1.plotly_chart(P.channel_share_bars(rows, variables, height=330, title="Kanal katkısı · kategori ve karar türü"),
+                        use_container_width=True, config=CFG)
+        tor = shares(sh[sh["category"] == "TOR"], variables)
+        c2.plotly_chart(P.channel_vs_auc(tor, EDA_AUC), use_container_width=True, config=CFG)
+        order_model = sorted(tor, key=tor.get, reverse=True)
+        order_eda = sorted(EDA_AUC, key=EDA_AUC.get, reverse=True)
+        same = order_model == [v for v in order_eda if v in tor]
+        n_sh = f"{len(sh):,}".replace(",", ".")
+        st.html("<div class='note'>Sol: her karede kanalların |SHAP| toplamı 1'e ölçeklenip ortalandı "
+                f"({n_sh} kare, 8 ileri geçiş/kare). Sağ: 01 defterinde kanalların tek başına hortumu ayırt etme "
+                f"AUC'si (TOR ↔ WRN'de VEL {fmt(EDA_AUC_WRN['VEL'], 3)}, WIDTH {fmt(EDA_AUC_WRN['WIDTH'], 3)}, "
+                f"DBZ {fmt(EDA_AUC_WRN['DBZ'], 3)}). Modelin sıralaması ({' > '.join(order_model)}) "
+                + ("veri analizindekiyle aynı." if same else f"veri analizindekinden ({' > '.join(order_eda)}) farklı.")
+                + "</div>")
+    else:
+        st.html(f"<div class='note'>Bütün test kümesinde kanal SHAP (X3) ve kompozitler (X1) için bir kez: "
+                f"<code>python scripts/make_xai_global.py --models {info.key}</code></div>")
+
+    rot_path = D.npy_dir() / ROT_FILE
+    p = cache.probs(info, store.samples)
+    if rot_path.exists() and p is not None:
+        rot = _parquet(str(rot_path), cache._mtime(rot_path))
+        t = test[["filename", "category"]].assign(prob=p[(store.samples["split"] == "test").to_numpy()])
+        t = t.merge(rot, on="filename").dropna(subset=["prob", "rot_ms"])
+        if len(t) > 20:
+            from scipy.stats import spearmanr
+            rho = float(spearmanr(t["rot_ms"], t["prob"]).statistic)
+            edges = np.unique(np.quantile(t["rot_ms"], np.linspace(0, 1, 11)))
+            b = np.clip(np.digitize(t["rot_ms"], edges[1:-1]), 0, len(edges) - 2)
+            bins = [(float(t["rot_ms"][b == i].median()), float(t["prob"][b == i].mean()), int((b == i).sum()))
+                    for i in range(len(edges) - 1) if (b == i).any()]
+            rng = np.random.default_rng(0)
+            groups = []
+            for c in ("NUL", "WRN", "TOR"):
+                g = t[t["category"] == c]
+                g = g.iloc[rng.permutation(len(g))[:1500]]
+                groups.append((CAT_TR.get(c, c), T.CATEGORY_COLORS[c], g["rot_ms"], g["prob"]))
+            st.html("<div class='h-panel'>Model skoru ve dönme şiddeti (X2)</div>")
+            st.plotly_chart(P.rotation_scatter(groups, bins, rho, info.threshold), use_container_width=True, config=CFG)
+            st.html("<div class='note'>Dönme, VEL'den modelden bağımsız hesaplanır: karenin merkezinde (15° × 15 km) "
+                    "5 × 3 hücrelik pencerede en büyük ile en küçük hız farkı (m/s). Noktalar kategori başına en fazla "
+                    "1.500 kare; siyah çizgi bütün test karelerinde dönmenin onda birlik aralıklarına göre ortalama "
+                    "skor. ρ yüksekse model skoru dönmeyle birlikte artıyor demektir.</div>")
+    elif p is not None:
+        st.html("<div class='note'>Skor ↔ dönme ilişkisi (X2) için bir kez: "
+                "<code>python scripts/make_xai_global.py --only rotation</code></div>")

@@ -4,13 +4,19 @@ Sırasıyla:
   1. Veri klasörünü bulur: --data, $TORNADO_DATA_DIR, <repo>/data, Google Drive (~/Library/CloudStorage/GoogleDrive-*/...).
      catalog.csv ile tornet_*.npz aynı klasörde duruyorsa (ör. ~ ya da ~/Downloads) onları <repo>/data'ya bağlar.
   2. Model klasörünü bulur: --models, $TORNADO_MODELS_DIR, <repo>/models, <veri>/../models.
-  3. .npy dosyaları yoksa ya da .npz'ler daha yeniyse scripts/export_npy.py'yi çalıştırır.
-  4. preds.parquet'i olmayan ya da eskimiş model varsa scripts/make_preds.py'yi çalıştırır.
+  3. .npy dosyaları yoksa ya da .npz'ler daha yeniyse scripts/export_npy.py'yi çalıştırır
+     (yalnız catalog.csv / splits.csv değiştiyse büyük .npy dosyaları yeniden yazılmaz, yalnız örnek tablosu).
+  4. Skoru olmayan, eskimiş ya da eksik model varsa scripts/make_preds.py'yi çalıştırır
+     (Colab'ın yazdığı preds.parquet yalnız doğrulama + test kapsar; eksik bölümler tamamlanır).
   5. Streamlit'i başlatır ve tarayıcıda açar.
+  6. Arka planda, arayüz açıkken açıklanabilirlik hesaplarını yapar (uzun sürer; bittikçe sayfa yenilenince görünür):
+       scripts/make_xai_global.py   dönme tablosu (X2), bütün testte kanal SHAP (X3), kompozitler (X1)
+       scripts/make_xai.py          kare başına açıklama ölçüleri (konum haritası X4 dahil)
 
 Seçenekler:
   python main.py --data "<veri klasörü>" --models "<model klasörü>"
   python main.py --no-prep        # hazırlığı atla, sadece arayüzü aç
+  python main.py --no-xai         # skorları hazırla ama açıklanabilirlik hesaplarını yapma
   python main.py --port 8502
 """
 import argparse
@@ -84,24 +90,103 @@ def find_models(arg, data):
     return None
 
 
-def needs_export(data: Path) -> bool:
-    npy = data / "processed" / "npy" / "samples.parquet"
+def needs_export(data: Path):
+    """None: gerek yok · "table": yalnız örnek tablosu (catalog/splits değişti) · "full": .npy'ler de yeniden yazılır."""
+    npy_dir = data / "processed" / "npy"
+    samples = npy_dir / "samples.parquet"
     npz = list((data / "processed").glob("tornet_*.npz"))
     if not npz:
-        return False                                   # sadece npy kopyası varsa yapacak bir şey yok
-    if not npy.exists():
-        return True
-    newest = max(p.stat().st_mtime for p in [*npz, data / "catalog.csv", data / "splits.csv"] if p.exists())
-    return newest > npy.stat().st_mtime
+        return None                                    # sadece npy kopyası varsa yapacak bir şey yok
+    if not samples.exists():
+        return "full"
+    for f in npz:                                      # .npz, kendi .npy'sinden yeniyse (ya da .npy yoksa)
+        x = npy_dir / f"{f.stem}_X.npy"
+        if not x.exists() or f.stat().st_mtime > x.stat().st_mtime:
+            return "full"
+    tables = [p for p in (data / "catalog.csv", data / "splits.csv") if p.exists()]
+    if tables and max(p.stat().st_mtime for p in tables) > samples.stat().st_mtime:
+        return "table"
+    return None
 
 
-def needs_preds(models: Path) -> list:
-    stale = []
-    for d in sorted(p for p in models.iterdir() if (p / "best.pt").exists() and (p / "results.json").exists()):
+def _model_dirs(models: Path):
+    return sorted(p for p in models.iterdir() if (p / "best.pt").exists() and (p / "results.json").exists())
+
+
+def needs_preds(models: Path, data: Path) -> dict:
+    """{model: None (hepsi yeniden) | [eksik bölümler]}. Colab'ın preds.parquet'i yalnız val + test kapsar."""
+    import pandas as pd
+    samples = pd.read_parquet(data / "processed" / "npy" / "samples.parquet", columns=["filename", "split"])
+    todo = {}
+    for d in _model_dirs(models):
         pr = d / "preds.parquet"
         if not pr.exists() or (d / "best.pt").stat().st_mtime > pr.stat().st_mtime:
-            stale.append(d.name)
-    return stale
+            todo[d.name] = None
+            continue
+        have = set(pd.read_parquet(pr, columns=["filename"])["filename"])
+        missing = sorted(samples.loc[~samples["filename"].isin(have), "split"].unique())
+        if missing:
+            todo[d.name] = missing
+    return todo
+
+
+def _fresh(f: Path, ref: Path) -> bool:
+    return f.exists() and f.stat().st_mtime > ref.stat().st_mtime
+
+
+def needs_xai(models: Path, data: Path) -> tuple[bool, list]:
+    """(make_xai_global gerekli mi, make_xai gereken modeller). Skoru olmayan model atlanır."""
+    import pyarrow.parquet as pq
+    glob_todo = not (data / "processed" / "npy" / "rotation.parquet").exists()
+    frame_todo = []
+    for d in _model_dirs(models):
+        best = d / "best.pt"
+        if not (d / "preds.parquet").exists():
+            continue
+        if not (_fresh(d / "shap_all.parquet", best) and _fresh(d / "composites.npz", best)):
+            glob_todo = True
+        x = d / "xai.parquet"
+        if not _fresh(x, best) or "loc_gap" not in pq.read_schema(x).names:   # eski dosya: konum haritası (X4) yok
+            frame_todo.append(d.name)
+    return glob_todo, frame_todo
+
+
+def xai_background(models: Path, data: Path, env):
+    """Arayüz açıkken açıklanabilirlik hesapları; çıktı terminale [XAI] önekiyle yazılır."""
+    try:
+        glob_todo, frame_todo = needs_xai(models, data)
+    except Exception as e:  # noqa: BLE001
+        print(f"[XAI] kontrol başarısız: {e}", flush=True)
+        return
+    cmds = []
+    if glob_todo:
+        cmds.append([sys.executable, "-u", "scripts/make_xai_global.py"])
+    if frame_todo:
+        cmds.append([sys.executable, "-u", "scripts/make_xai.py", "--force", "--models", *frame_todo])
+    if not cmds:
+        print("[XAI] açıklanabilirlik sonuçları güncel.", flush=True)
+        return
+    print("[XAI] arka planda başlıyor (arayüzü kullanabilirsin; bitenler sayfa yenilenince görünür).", flush=True)
+    for cmd in cmds:
+        name = Path(cmd[2]).name
+        t0 = time.time()
+        p = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        last = 0.0
+        for line in iter(p.stdout.readline, ""):
+            for part in line.replace("\r", "\n").splitlines():
+                part = part.strip()
+                if not part or "Warning" in part:
+                    continue
+                progress = part[:1].isdigit() or part.startswith(("SHAP:", "dönme:"))
+                if progress and time.time() - last < 30:      # ilerleme satırları en fazla 30 sn'de bir
+                    continue
+                last = time.time() if progress else last
+                print(f"[XAI] {part}", flush=True)
+        if p.wait():
+            print(f"[XAI] {name} başarısız oldu (kod {p.returncode}).", flush=True)
+            return
+        print(f"[XAI] {name} bitti ({(time.time() - t0) / 60:.1f} dk).", flush=True)
+    print("[XAI] bütün açıklanabilirlik hesapları bitti; sayfayı yenile.", flush=True)
 
 
 def run(cmd, env):
@@ -127,7 +212,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", help="veri klasörü (catalog.csv, splits.csv, processed/)")
     ap.add_argument("--models", help="model klasörü (her alt klasörde best.pt + results.json)")
-    ap.add_argument("--no-prep", action="store_true", help="npy/skor hazırlığını atla")
+    ap.add_argument("--no-prep", action="store_true", help="npy/skor/açıklama hazırlığını atla")
+    ap.add_argument("--no-xai", action="store_true", help="arka plandaki açıklanabilirlik hesaplarını yapma")
     ap.add_argument("--port", default="8501")
     args = ap.parse_args()
 
@@ -153,14 +239,27 @@ def main():
         env["TORNADO_MODELS_DIR"] = str(models)
         print(f"Modeller: {models}")
 
+    ready = False
     if not args.no_prep and data is not None:
-        if needs_export(data):
-            run([sys.executable, "scripts/export_npy.py", "--force"], env)
-        if models is not None and (data / "processed" / "npy" / "samples.parquet").exists():
-            stale = needs_preds(models)
-            if stale:
-                print(f"Skoru eksik/eskimiş modeller: {', '.join(stale)}")
-                run([sys.executable, "scripts/make_preds.py", "--models", *stale], env)
+        kind = needs_export(data)
+        if kind:
+            run([sys.executable, "scripts/export_npy.py", *(["--force"] if kind == "full" else [])], env)
+        ready = models is not None and (data / "processed" / "npy" / "samples.parquet").exists()
+        if ready:
+            todo = needs_preds(models, data)
+            full = [k for k, v in todo.items() if v is None]
+            if full:
+                print(f"Skoru olmayan/eskimiş modeller: {', '.join(full)}")
+                run([sys.executable, "scripts/make_preds.py", "--force", "--models", *full], env)
+            by_splits = {}
+            for k, v in todo.items():
+                if v is not None:
+                    by_splits.setdefault(tuple(v), []).append(k)
+            for splits, keys in by_splits.items():           # Colab skorları: eksik bölümleri tamamla
+                print(f"Eksik bölüm skorları ({', '.join(splits)}): {', '.join(keys)}")
+                run([sys.executable, "scripts/make_preds.py", "--models", *keys, "--split", *splits], env)
+    if ready and not args.no_xai:
+        threading.Thread(target=xai_background, args=(models, data, env), daemon=True).start()
 
     cmd = [sys.executable, "-m", "streamlit", "run", str(ROOT / "src" / "app" / "main.py"),
            "--server.port", str(args.port), "--server.headless", "true"]   # headless: ilk açılıştaki e-posta sorusu çıkmaz

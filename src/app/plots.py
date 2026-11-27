@@ -205,6 +205,15 @@ def _lut(var: str) -> np.ndarray:
     return out
 
 
+def heat_rgb(m: np.ndarray, vmax: float) -> np.ndarray:
+    """(H, W) değer → ısı rengi (Grad-CAM paleti), 0..vmax; NaN boş renk."""
+    v, c = _CAM
+    x = np.clip(np.nan_to_num(m, nan=0.0) / max(vmax, 1e-6), 0, 1)
+    rgb = np.stack([np.interp(x, v, c[:, k]) for k in range(3)], -1)
+    rgb[~np.isfinite(m)] = NODATA
+    return np.clip(rgb, 0, 255).astype(np.uint8)
+
+
 def radar_rgb(q: np.ndarray, var: str, cam: np.ndarray | None = None) -> np.ndarray:
     """CNN görünümü (120 × 240) RGB; cam verilirse (0..1) üstüne Grad-CAM ısı haritası bindirilir."""
     rgb = _lut(var)[q]
@@ -220,8 +229,8 @@ def radar_rgb(q: np.ndarray, var: str, cam: np.ndarray | None = None) -> np.ndar
 # ---------------------------------------------------------------- Açıklanabilirlik
 
 CHANNEL_COLORS = {"DBZ": "#0072B2", "VEL": "#E8950E", "WIDTH": "#7B5BE0"}
-METHOD_COLORS = {"cam": "#D55E00", "ig": "#0072B2", "occ": "#009E73", "rnd": "#8791A1"}
-METHOD_NAMES = {"cam": "Grad-CAM", "ig": "Integrated Gradients", "occ": "Occlusion", "rnd": "Rastgele sıra"}
+METHOD_COLORS = {"cam": "#D55E00", "ig": "#0072B2", "occ": "#009E73", "loc": "#CC79A7", "rnd": "#8791A1"}
+METHOD_NAMES = {"cam": "Grad-CAM", "ig": "Integrated Gradients", "occ": "Occlusion", "loc": "Konum haritası", "rnd": "Rastgele sıra"}
 
 
 def shap_waterfall(base: float, phi, variables, score: float, thr: float, height=330) -> go.Figure:
@@ -251,7 +260,7 @@ def deletion_plot(curves: dict, method: str, thr: float, height=320) -> go.Figur
     """curves: {yöntem: (silinen oran, skor)}; seçili yöntem kalın çizilir."""
     f = _fig(title=dict(text="Sadakat testi · silme eğrisi"), height=height, margin=dict(l=52, r=16, t=40, b=96),
              legend=dict(orientation="h", x=0, y=-0.32, yanchor="top", font=dict(size=11)))
-    for k in ("ig", "occ", "cam", "rnd"):
+    for k in ("ig", "occ", "cam", "loc", "rnd"):
         if k not in curves:
             continue
         x, y = curves[k]
@@ -266,9 +275,10 @@ def deletion_plot(curves: dict, method: str, thr: float, height=320) -> go.Figur
     return f
 
 
-def channel_share_bars(rows: list, variables, height=300) -> go.Figure:
+def channel_share_bars(rows: list, variables, height=300,
+                       title="Kanal katkısı · karar türüne göre (ortalama |SHAP| payı)") -> go.Figure:
     """rows: [(etiket, {kanal: pay})]; yatay yığılmış çubuklar, ortalama |SHAP| payı."""
-    f = _fig(title=dict(text="Kanal katkısı · karar türüne göre (ortalama |SHAP| payı)"), height=height, barmode="stack",
+    f = _fig(title=dict(text=title), height=height, barmode="stack",
              margin=dict(l=120, r=16, t=40, b=60), legend=dict(orientation="h", y=-0.16, x=0, traceorder="normal"))
     labels = [r[0] for r in rows]
     for v in variables:
@@ -299,7 +309,7 @@ def distance_hist(groups: list, method: str, height=300) -> go.Figure:
 
 def sanity_bars(vals: dict, method: str, height=230) -> go.Figure:
     """vals: {yöntem: ortalama sıra korelasyonu (eğitilmiş vs rastgele ağırlık)}."""
-    keys = [k for k in ("cam", "ig", "occ") if k in vals]
+    keys = [k for k in ("cam", "ig", "occ", "loc") if k in vals]
     f = _fig(title=dict(text="Sağlamlık kontrolü · rastgele ağırlıkla harita benzerliği"), height=height,
              margin=dict(l=150, r=50, t=40, b=40), showlegend=False)
     f.add_bar(y=[METHOD_NAMES[k] for k in keys], x=[vals[k] for k in keys], orientation="h",
@@ -309,3 +319,46 @@ def sanity_bars(vals: dict, method: str, height=230) -> go.Figure:
     f.update_xaxes(range=[min(0, *[vals[k] for k in keys]) - 0.05, 1], title="Spearman ρ (düşük = harita modele bağlı)")
     f.update_yaxes(autorange="reversed", showgrid=False)
     return f
+
+
+# ---------------------------------------------------------------- veri seti geneli açıklama (X2, X3)
+
+def rotation_scatter(groups: list, bins: list, rho: float, thr: float, height=400) -> go.Figure:
+    """X2: model skoru ↔ merkezdeki en güçlü dönme (m/s). groups: [(kategori, renk, dönme, skor)] (örneklem);
+    bins: [(aralık ortası, ortalama skor, n)] bütün karelerden; çizgi aralık ortalaması."""
+    f = _fig(title=dict(text=f"Model skoru ↔ dönme şiddeti · Spearman ρ = {rho:.2f}".replace(".", ",")), height=height,
+             margin=dict(l=56, r=16, t=44, b=84), legend=dict(orientation="h", y=-0.24, x=0))
+    for lab, col, x, y in groups:
+        f.add_scattergl(x=x, y=y, mode="markers", name=lab, marker=dict(color=col, size=4, opacity=0.35),
+                        hovertemplate="dönme %{x:.0f} m/s<br>skor %{y:.3f}<extra>" + lab + "</extra>")
+    if bins:
+        x, y, n = zip(*bins)
+        f.add_scatter(x=x, y=y, mode="lines+markers", name="aralık ortalaması", line=dict(color=T.INK, width=2.5),
+                      marker=dict(size=7), customdata=n,
+                      hovertemplate="dönme ≈%{x:.0f} m/s<br>ortalama skor %{y:.3f}<br>%{customdata} kare<extra></extra>")
+    f.add_hline(y=thr, line=dict(color=T.INK, width=1, dash="dot"))
+    f.update_xaxes(title="merkezdeki en güçlü dönme (m/s, VEL hız çifti)")
+    f.update_yaxes(title="model skoru", range=[0, 1.02])
+    return f
+
+
+def channel_vs_auc(shares: dict, aucs: dict, height=300) -> go.Figure:
+    """X3: modelin kanal payı (|SHAP|, TOR kareleri) ile 01'deki tek değişkenli ayırt edicilik (AUC − 0,5) yan yana."""
+    keys = [k for k in aucs if k in shares]
+    f = make_subplots_2(("Model · pay (TOR)", "01 · tek başına AUC"))
+    f.update_layout(**T.plotly_layout(title=dict(text="Model ↔ veri analizi"), height=height, showlegend=False,
+                                      margin=dict(l=60, r=40, t=70, b=36)))
+    f.update_annotations(font=dict(size=12))
+    for c, vals, fmt_ in ((1, [shares[k] for k in keys], "{:.0%}"), (2, [aucs[k] for k in keys], "{:.3f}")):
+        f.add_bar(y=keys, x=vals, orientation="h", marker_color=[CHANNEL_COLORS.get(k, T.MUTED) for k in keys],
+                  text=[fmt_.format(v) for v in vals], textposition="outside", cliponaxis=False,
+                  textfont=dict(family="IBM Plex Mono, monospace", size=12), hoverinfo="skip", row=1, col=c)
+    f.update_yaxes(autorange="reversed", showgrid=False)
+    f.update_xaxes(range=[0, 1], tickformat=".0%", row=1, col=1)
+    f.update_xaxes(range=[0.5, 0.8], row=1, col=2)
+    return f
+
+
+def make_subplots_2(titles):
+    from plotly.subplots import make_subplots
+    return make_subplots(rows=1, cols=2, subplot_titles=titles, horizontal_spacing=0.14)

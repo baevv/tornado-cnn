@@ -2,6 +2,11 @@
 
 Her kart bir radar karesidir (CNN girdisi, VEL); Grad-CAM açıksa modelin baktığı yer üstüne bindirilir.
 "Gezgin'de aç" o fırtınayı o karede açar.
+
+Kompozit düğmesi (karar X1): test kümesinin dört uç grubunun (en iyi isabet, en kötü yanlış alarm, en kötü ıska,
+en iyi doğru ret) ortalama radar görüntüsü, ortalama Grad-CAM'i ve ortalama konum haritası
+(scripts/make_xai_global.py → models/<ad>/composites.npz). TorNet pencereleri olay konumuna ortalandığı için
+ortalama almak anlamlıdır.
 """
 import numpy as np
 import streamlit as st
@@ -20,6 +25,7 @@ def defaults(ss, models):
     ss.setdefault("ht_thr", {})
     ss.setdefault("ht_cam", True)
     ss.setdefault("ht_sort", True)
+    ss.setdefault("ht_comp", False)
 
 
 def handle(ev, ss):
@@ -36,6 +42,8 @@ def handle(ev, ss):
         ss.ht_cam = bool(ev["on"])
     elif a == "hata_sort":
         ss.ht_sort = bool(ev["on"])
+    elif a == "hata_comp":
+        ss.ht_comp = bool(ev["on"])
 
 
 def _thr(ss, info):
@@ -59,11 +67,15 @@ def state(ss, store, models) -> dict:
     t = _table(ss, store, info) if info else None
     counts = t["kind"].value_counts().to_dict() if t is not None else {}
     return {"kind": ss.ht_kind, "model": ss.ht_model, "split": ss.ht_split, "thr": _thr(ss, info),
-            "counts": {k: int(counts.get(k, 0)) for k in ("fn", "fp", "tp")}, "cam": ss.ht_cam, "sort_conf": ss.ht_sort}
+            "counts": {k: int(counts.get(k, 0)) for k in ("fn", "fp", "tp")}, "cam": ss.ht_cam, "sort_conf": ss.ht_sort,
+            "comp": ss.ht_comp}
 
 
 def body(ss, store, models):
     info = next((m for m in models if m.key == ss.ht_model), None)
+    if ss.ht_comp and info is not None:
+        composites(info)
+        return
     t = _table(ss, store, info) if info else None
     if t is None:
         st.html(E.no_scores_note(ss.ht_split))
@@ -108,3 +120,63 @@ def body(ss, store, models):
                 st.rerun()
     if len(sel) > N_CARDS:
         st.html(f"<div class='note'>İlk {N_CARDS} / {len(sel):,} kare gösteriliyor.</div>".replace(",", "."))
+
+
+# ---------------------------------------------------------------- kompozitler (X1)
+
+COMP_FILE = "composites.npz"
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def _comp(path: str, stamp: float) -> dict:
+    with np.load(path, allow_pickle=False) as z:
+        return {k: z[k] for k in z.files}
+
+
+def _to_q(img: np.ndarray, var: str) -> np.ndarray:
+    """Fiziksel ortalama (H, W) → arayüzün uint8 ölçeği (renk tabloları için); NaN = boş."""
+    from src.helper.tornet import CHANNEL_RANGES
+    lo, hi = CHANNEL_RANGES[var]
+    q = np.round((np.clip(img, lo, hi) - lo) / (hi - lo) * 254 + 1)
+    return np.where(np.isfinite(img), q, 0).astype(np.uint8)
+
+
+def composites(info):
+    from src.helper.xai import COMPOSITE_GROUPS
+    path = info.folder / COMP_FILE
+    if not path.exists():
+        st.html(f"<div class='note'>{info.label} için kompozit yok. Bir kez hesapla: "
+                f"<code>python scripts/make_xai_global.py --models {info.key} --only composites</code></div>")
+        return
+    z = _comp(str(path), cache._mtime(path))
+    variables = [str(v) for v in z["variables"]]
+    base = "DBZ" if "DBZ" in variables else variables[0]               # Grad-CAM ve konum haritasının zemini
+    groups = [k for k in COMPOSITE_GROUPS if f"{k}_img" in z]
+    rot_max = max((float(np.nanmax(z[f"{k}_rot"])) for k in groups if f"{k}_rot" in z), default=1.0)
+    st.html("<div class='note'>Test kümesinin dört uç grubu; her gruptan aynı fırtınadan yalnızca bir kare. Satırlar: "
+            "DBZ ve WIDTH ortalaması (fiziksel birimde, boş pikseller dışarıda); <b>dönme</b> ortalaması (VEL'de 5 × 3 "
+            "hücrelik pencerede en büyük hız farkı; VEL'in kendi ortalaması alınmaz, çünkü hız çiftinin yönü olaydan "
+            "olaya değiştiği için + ve − birbirini götürür); DBZ üstünde ortalama Grad-CAM ve ortalama konum haritası "
+            "(X4, skor ölçeği). Pencereler olay konumuna ortalı olduğu için ortalama, grubun tipik görünümünü "
+            "verir.</div>")
+    cols = st.columns(len(groups), gap="small")
+    for c, k in zip(cols, groups):
+        name, rule = COMPOSITE_GROUPS[k]
+        pr = z[f"{k}_prob"]
+        img = z[f"{k}_img"]
+        qb = _to_q(img[variables.index(base)], base)
+        with c:
+            st.html(f"<div class='h-panel'>{name}</div><div class='xd'>{rule} · {len(pr)} kare · ortalama skor "
+                    f"{pr.mean():.3f}</div>")
+            for v_i, v in enumerate(variables):
+                if v == "VEL" and f"{k}_rot" in z:
+                    r = z[f"{k}_rot"]
+                    st.image(P.heat_rgb(r, rot_max), use_container_width=True,
+                             caption=f"Dönme ortalaması (en yüksek {np.nanmax(r):.0f} m/s; ölçek ortak)")
+                elif v != "VEL":
+                    st.image(P.radar_rgb(_to_q(img[v_i], v), v), use_container_width=True, caption=f"{v} ortalaması")
+            st.image(P.radar_rgb(qb, base, z[f"{k}_cam"] / max(float(z[f"{k}_cam"].max()), 1e-6)),
+                     use_container_width=True, caption=f"Grad-CAM ortalaması ({base} üstünde)")
+            if f"{k}_loc" in z:
+                st.image(P.radar_rgb(qb, base, z[f"{k}_loc"]), use_container_width=True,
+                         caption=f"Konum haritası ortalaması (en yüksek skor {float(z[f'{k}_loc'].max()):.2f})")

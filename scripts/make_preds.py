@@ -4,7 +4,7 @@ Arayüz skorları buradan okur; böylece fırtına şeridi, karşılaştırma e�
 Önce scripts/export_npy.py çalıştırılmış olmalı.
 
 Kullanım (repo kökünden):
-    python scripts/make_preds.py                       # preds.parquet'i olmayan ya da eskimiş bütün modeller
+    python scripts/make_preds.py                       # preds.parquet'i olmayan, eskimiş ya da eksik bütün modeller
     python scripts/make_preds.py --models 05_cnn_bn    # yalnız bu model(ler)
     python scripts/make_preds.py --split test val      # yalnız bu bölümler (varsayılan: hepsi)
     python scripts/make_preds.py --force               # hepsini yeniden hesapla
@@ -51,10 +51,16 @@ def main():
     if not infos:
         sys.exit(f"{M.models_root()} altında model bulunamadı (best.pt + results.json).")
 
+    all_samples = samples
     for info in infos:
+        samples = all_samples
         if info.has_preds and not info.preds_stale and not args.force:
-            print(f"{info.key}: preds.parquet güncel, atlanıyor (--force ile yeniden hesaplanır).")
-            continue
+            have = set(M.load_preds(info).index)
+            samples = all_samples[~all_samples["filename"].isin(have)]      # yalnız skoru olmayan örnekler
+            if samples.empty:
+                print(f"{info.key}: preds.parquet güncel, atlanıyor (--force ile yeniden hesaplanır).")
+                continue
+            print(f"{info.key}: {len(samples):,} örneğin skoru eksik (ör. Colab yalnız val + test yazdı); tamamlanıyor.")
         variables = info.results.get("variables") or store.variables
         if list(variables) != list(store.variables):
             print(f"{info.key}: model {variables} kanallarıyla eğitilmiş, veri {store.variables}; atlanıyor.")
@@ -76,7 +82,7 @@ def main():
                 done += len(r)
                 print(f"\r  {info.key}: {done:,}/{len(samples):,}", end="", flush=True)
         out = pd.DataFrame({"filename": samples["filename"].to_numpy(), "prob": probs})
-        if info.has_preds and args.split and not args.force:     # bölüm seçildiyse eskilerle birleştir
+        if info.has_preds and not args.force and (args.split or not info.preds_stale):   # eskilerle birleştir
             old = pd.read_parquet(info.preds_path)
             out = pd.concat([old[~old["filename"].isin(out["filename"])], out], ignore_index=True)
         out.to_parquet(info.preds_path, index=False)

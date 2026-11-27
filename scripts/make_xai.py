@@ -1,8 +1,9 @@
 """Açıklanabilirlik ölçülerini test setinden seçilen karelerde bir kez hesaplar: models/<ad>/xai.parquet.
 
 Arayüzün "Açıklama · Genel" görünümü ve 07 not defteri bu dosyayı okur. Her kare için (src/helper/xai.py):
-  kanal SHAP (DBZ/VEL/WIDTH katkısı), açıklama zirvesinin en güçlü dönmeye uzaklığı (km, üç yöntem),
-  silme eğrisi alanı (üç yöntem + rastgele sıra), ilk --sanity karede ağırlık rastgeleleştirme testi.
+  kanal SHAP (DBZ/VEL/WIDTH katkısı), açıklama zirvesinin en güçlü dönmeye uzaklığı (km, dört yöntem),
+  silme eğrisi alanı (dört yöntem + rastgele sıra), ilk --sanity karede ağırlık rastgeleleştirme testi,
+  konum haritasının (X4) gerçek logit'ten farkı (loc_gap).
 
 Kareler karar türüne göre dengeli seçilir (TP, FN, FP, TN; her birinden --n tane, rastgele, seed 0).
 Karar türü preds.parquet'teki skordan ve modelin eşiğinden gelir: önce scripts/make_preds.py çalıştırılmalı.
@@ -91,7 +92,7 @@ def main():
             rot = rotation_cells(q[None], variables)[0]
             e = xai.explain_frame(net, q, variables, rot_cell=rot, az0=float(r["az_min"]), r0=float(r["rng_min"]))
             row = {"filename": r["filename"], "kind": r["kind"], "prob": float(r["prob"]),
-                   "score": e["score"], "base": e["base"], "rot_found": rot is not None,
+                   "score": e["score"], "base": e["base"], "rot_found": rot is not None, "loc_gap": e["loc_gap"],
                    **{f"phi_{v}": float(e["phi"][i]) for i, v in enumerate(variables)},
                    **{f"dist_{k}": (np.nan if d is None else d) for k, d in e["dist_km"].items()},
                    **{f"auc_{k}": a for k, a in e["auc"].items()}}

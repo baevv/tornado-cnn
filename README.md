@@ -100,7 +100,16 @@ The explorer plays a whole storm episode frame by frame: the real x, y km view a
 synchronised cursor, every model's score on a timeline.
 
 Quick start: `python main.py` finds the data folder (`$TORNADO_DATA_DIR`, `data/`, or the synced Google Drive folder)
-and the models folder, runs the two preparation steps below only when needed, and opens the interface in the browser.
+and the models folder, runs every preparation step below only when needed, and opens the interface in the browser:
+
+1. `export_npy.py` if the `.npy` files are missing or older than the `.npz` files (only the sample table is rebuilt
+   when just `catalog.csv` / `splits.csv` changed).
+2. `make_preds.py` for models without scores, with stale scores, or with missing splits (Colab writes validation +
+   test scores only; the training split is filled in).
+3. After the interface is open, in the background: `make_xai_global.py` (rotation table, dataset-wide channel SHAP,
+   composites) and `make_xai.py` (per-frame explanations). Progress is printed with an `[XAI]` prefix; results appear
+   when the page is refreshed. Skip with `--no-xai`, skip all preparation with `--no-prep`.
+
 Folders can be given explicitly: `python main.py --data "<.../tornado-cnn/data>" --models "<.../models>"`.
 
 Manual steps (after the processed `.npz` files and `splits.csv` exist, e.g. synced from Google Drive):
@@ -111,11 +120,12 @@ export TORNADO_MODELS_DIR="$TORNADO_DATA_DIR/../models"     # folders with best.
 python scripts/export_npy.py     # .npz → memory-mapped .npy + samples.parquet (once per data change)
 python scripts/make_preds.py     # every model's probability for every sample → models/<name>/preds.parquet
 python scripts/make_xai.py       # explainability measures on balanced test frames → models/<name>/xai.parquet
+python scripts/make_xai_global.py  # rotation table, dataset-wide channel SHAP, composites (X1–X3)
 streamlit run src/app/main.py
 ```
 
 Models are discovered automatically from the models folder; a retrained model's scores are recomputed by running
-`make_preds.py` again (it skips models whose `preds.parquet` is newer than `best.pt`).
+`make_preds.py` again (it skips models whose `preds.parquet` is newer than `best.pt` and complete).
 Put your own logo at `src/app/assets/logo.svg`.
 
 ## Explainability (XAI)

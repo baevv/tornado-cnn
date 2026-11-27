@@ -524,12 +524,14 @@ function renderToolbars() {
     $('ht-cam').onclick = () => { const on = $('ht-cam').getAttribute('aria-pressed') !== 'true'; $('ht-cam').setAttribute('aria-pressed', on); send('hata_cam', {on}); };
     $('ht-sort').setAttribute('aria-pressed', !!h.sort_conf);
     $('ht-sort').onclick = () => { const on = $('ht-sort').getAttribute('aria-pressed') !== 'true'; $('ht-sort').setAttribute('aria-pressed', on); send('hata_sort', {on}); };
+    $('ht-comp').setAttribute('aria-pressed', !!h.comp);
+    $('ht-comp').onclick = () => { const on = $('ht-comp').getAttribute('aria-pressed') !== 'true'; $('ht-comp').setAttribute('aria-pressed', on); send('hata_comp', {on}); };
   } else if (S.tab === 'xai') {
     const x = A.xai;
     pickDock($('ax-models'), modelItems(), x.model, id => { setPressed($('ax-models'), id); send('xai_model', {key: id}); });
     const VIEWS = [['frame', 'crosshair', 'Tek kare', 'Seçili karenin açıklaması'], ['global', 'layers', 'Genel', 'Test setinin toplu analizi']];
     pickDock($('ax-view'), VIEWS.map(([id, icon, name, tip]) => ({id, icon, name, tip})), x.view, id => { setPressed($('ax-view'), id); send('xai_view', {view: id}); });
-    const METH = [['cam', 'eye', 'Grad-CAM', 'Grad-CAM: model nereye bakıyor (kaba)'], ['ig', 'crosshair', 'Int. Gradients', 'Integrated Gradients: piksel ve kanal düzeyinde katkı'], ['occ', 'grid', 'Occlusion', 'Occlusion: bölge kapatılınca skor ne kadar düşüyor']];
+    const METH = [['cam', 'eye', 'Grad-CAM', 'Grad-CAM: model nereye bakıyor (kaba)'], ['ig', 'crosshair', 'Int. Gradients', 'Integrated Gradients: piksel ve kanal düzeyinde katkı'], ['occ', 'grid', 'Occlusion', 'Occlusion: bölge kapatılınca skor ne kadar düşüyor'], ['loc', 'pin', 'Konum', 'Konum haritası: modelin kendi sınıflandırıcısı her konumda (yaklaşık)']];
     pickDock($('ax-method'), METH.map(([id, icon, name, tip]) => ({id, icon, name, tip})), x.method, id => { setPressed($('ax-method'), id); send('xai_method', {method: id}); });
     const isFrame = x.view === 'frame';
     $('ax-frame-nav').hidden = !isFrame || !x.pos;

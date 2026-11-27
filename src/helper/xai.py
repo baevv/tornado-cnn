@@ -11,6 +11,10 @@ Dört yöntem birbirini tamamlar:
                         Modelin içine bakmaz, doğrudan etkiyi ölçer (LIME'ın sorduğu soruyu rastgelelik olmadan sorar).
   Kanal SHAP            DBZ, VEL ve WIDTH kanallarının katkısı: kesin Shapley değeri. 3 kanalda 2³ = 8 alt küme,
                         yani 8 ileri geçiş; yaklaşık değil. Katkıların toplamı = skor − taban skor.
+  Konum haritası (X4)   Modelin kendi sınıflandırıcısı (yoğun katmanlar), global havuzlamadan önceki özellik haritasının
+                        her konumuna ayrı ayrı uygulanır: "bu konum tek başına olsaydı skor ne olurdu?". Ek eğitim yok.
+                        Global max havuzlama her kanalın en büyüğünü farklı konumlardan alabildiği için kararın
+                        yalnızca bir yaklaşığıdır; fark (gerçek logit − haritanın en büyüğü) her karede ölçülür.
 
 Açıklamanın kendisi de sınanır:
   Silme eğrisi (deletion)   En önemli pikseller önce silinir; skor ne kadar hızlı düşerse açıklama o kadar sadıktır.
@@ -38,7 +42,7 @@ from torch import nn
 from src.helper.model import bind_range
 from src.helper.train import decode_batch
 
-METHODS = {"cam": "Grad-CAM", "ig": "Integrated Gradients", "occ": "Occlusion"}
+METHODS = {"cam": "Grad-CAM", "ig": "Integrated Gradients", "occ": "Occlusion", "loc": "Konum haritası"}
 DAZ, DR = 0.5, 0.25          # TorNet: açı adımı (derece), mesafe adımı (km)
 
 
@@ -92,6 +96,53 @@ def gradcam(net, q: np.ndarray, variables) -> np.ndarray:
     finally:
         h.remove()
     return _norm_max(cam)
+
+
+# ---------------------------------------------------------------- Konum haritası (X4)
+
+def _unwrap(net):
+    return getattr(net, "net", net)                  # WithRange (CoordConv) sarmalayıcısının içindeki model
+
+
+def _pool_and_head(net):
+    """(havuzlama modülü, konum başına uygulanacak sınıflandırıcı, toplama türü "max" | "mean")."""
+    inner = _unwrap(net)
+    if hasattr(inner, "layer4"):                     # ResNet-18: avgpool → fc
+        return inner.avgpool, inner.fc, "mean"
+    head = nn.Sequential(*[m for m in inner.head if not isinstance(m, nn.Flatten)])
+    return inner.pool, head, "max" if isinstance(inner.pool, nn.AdaptiveMaxPool2d) else "mean"
+
+
+@torch.no_grad()
+def location_map(net, q: np.ndarray, variables, batch=64) -> dict:
+    """Modelin kendi konum haritası (X4): sınıflandırıcı havuzlamadan önceki her konuma ayrı uygulanır.
+
+    Döner:
+      logit_map (N, h, w)   konum başına logit (TornadoCNN 7 × 15, ResNet-18 4 × 8)
+      score_map (N, H, W)   sigmoid(logit_map), girdi boyutuna büyütülmüş; 0..1 skor ölçeği
+      logit (N,)            modelin gerçek logit'i
+      gap (N,)              logit − haritanın en büyüğü (max havuzlamada) ya da ortalaması (ortalama havuzlamada).
+                            Sıfıra yakınsa harita kararı iyi temsil eder.
+    """
+    pool, head, agg = _pool_and_head(net)
+    dev, feats = _device(net), {}
+    h = pool.register_forward_hook(lambda m, i, o: feats.__setitem__("f", i[0]))
+    out = {"logit_map": [], "score_map": [], "logit": [], "gap": []}
+    try:
+        for i in range(0, len(q), batch):
+            qb = q[i:i + batch]
+            logit = net(_x(qb, variables, dev)).squeeze(1)
+            f = feats["f"]                                            # (B, C, h, w)
+            lm = head(f.permute(0, 2, 3, 1)).squeeze(-1)              # (B, h, w)
+            a = lm.amax(dim=(1, 2)) if agg == "max" else lm.mean(dim=(1, 2))
+            sm = F.interpolate(torch.sigmoid(lm)[:, None], size=qb.shape[-2:], mode="bilinear", align_corners=False)[:, 0]
+            out["logit_map"].append(lm.cpu().numpy())
+            out["score_map"].append(sm.cpu().numpy())
+            out["logit"].append(logit.cpu().numpy())
+            out["gap"].append((logit - a).cpu().numpy())
+    finally:
+        h.remove()
+    return {k: np.concatenate(v).astype(np.float32) for k, v in out.items()}
 
 
 # ---------------------------------------------------------------- Integrated Gradients
@@ -166,6 +217,35 @@ def channel_shapley(net, q: np.ndarray, variables) -> dict:
             with_c = tuple(1 if i == c else s[i] for i in range(C))
             phi[:, c] += w * (v[with_c] - v[s])
     return {"base": v[(0,) * C], "score": v[(1,) * C], "phi": phi.astype(np.float32)}
+
+
+# ---------------------------------------------------------------- Uç durum kompozitleri (X1)
+
+COMPOSITE_GROUPS = {
+    "tp": ("En iyi isabetler", "TOR, en yüksek skor"),
+    "fp": ("En kötü yanlış alarmlar", "TOR değil, en yüksek skor"),
+    "fn": ("En kötü ıskalar", "TOR, en düşük skor"),
+    "tn": ("En iyi doğru retler", "TOR değil, en düşük skor"),
+}
+
+
+def extreme_groups(t, threshold: float, n=75) -> dict:
+    """Dört uç grup (L20 §5): her gruptan en uç n kare, aynı fırtınadan (episode_id) yalnızca bir kare.
+
+    t: filename, episode_id, label, prob sütunlu tablo. Döner: {grup: t'nin seçilen satırları}.
+    """
+    import pandas as pd
+    t = t.copy()
+    fire = t["prob"].to_numpy() >= threshold
+    y = t["label"].to_numpy() == 1
+    t["kind"] = np.where(y, np.where(fire, "tp", "fn"), np.where(fire, "fp", "tn"))
+    out = {}
+    for k in COMPOSITE_GROUPS:
+        g = t[t["kind"] == k]
+        high = k in ("tp", "fp")                                    # isabet ve yanlış alarm: en yüksek skor
+        g = g.sort_values("prob", ascending=not high).drop_duplicates("episode_id", keep="first")
+        out[k] = g.head(n)
+    return out
 
 
 # ---------------------------------------------------------------- Görselleştirme için haritalar
@@ -269,7 +349,8 @@ def explain_frame(net, q: np.ndarray, variables, rot_cell=None, az0=0.0, r0=0.0,
 
     Döner:
       score, base, phi (C,)               kanal SHAP (skor)
-      maps {cam, ig, occ}: (H, W) 0..1    gösterim haritaları
+      maps {cam, ig, occ, loc}: (H, W) 0..1   gösterim haritaları (loc: konum başına skor, normalleştirilmez)
+      loc_gap                             gerçek logit − konum haritasının en büyüğü / ortalaması (X4)
       ig_ch: (C, H, W) 0..1               IG, kanal kanal (aynı ölçek)
       peaks {yöntem: (i, j)}, dist_km {yöntem: km}   açıklama zirvesi ve en güçlü dönmeye uzaklığı
       deletion {yöntem | "rnd": (oran, skor)}, auc {yöntem | "rnd": alan}
@@ -280,10 +361,11 @@ def explain_frame(net, q: np.ndarray, variables, rot_cell=None, az0=0.0, r0=0.0,
     ig = integrated_gradients(net, q, variables, steps=ig_steps)
     occ = occlusion(net, q, variables, patch=patch)
     sh = channel_shapley(net, q[None], variables)
+    lm = location_map(net, q[None], variables)
 
     ig_sum = ig.sum(0)
-    raw = {"cam": cam, "ig": np.clip(ig_sum, 0, None), "occ": np.clip(occ, 0, None)}
-    maps = {"cam": cam, "ig": display_map(ig_sum), "occ": _norm_max(np.clip(occ, 0, None))}
+    raw = {"cam": cam, "ig": np.clip(ig_sum, 0, None), "occ": np.clip(occ, 0, None), "loc": lm["score_map"][0]}
+    maps = {"cam": cam, "ig": display_map(ig_sum), "occ": _norm_max(np.clip(occ, 0, None)), "loc": lm["score_map"][0]}
     ig_pos = np.clip(ig, 0, None)
     from scipy.ndimage import gaussian_filter
     ig_pos = np.stack([gaussian_filter(c, 1.5) for c in ig_pos])
@@ -305,4 +387,4 @@ def explain_frame(net, q: np.ndarray, variables, rot_cell=None, az0=0.0, r0=0.0,
 
     return {"score": float(sh["score"][0]), "base": float(sh["base"][0]), "phi": sh["phi"][0],
             "maps": maps, "ig_ch": ig_ch.astype(np.float32), "peaks": peaks, "dist_km": dist,
-            "deletion": deletion, "auc": auc}
+            "deletion": deletion, "auc": auc, "loc_gap": float(lm["gap"][0])}
