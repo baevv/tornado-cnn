@@ -68,9 +68,11 @@ def main():
             arr = store.arrays[int(year)]
             pos = np.flatnonzero(samples["year"].to_numpy() == year)
             rows = grp["row"].to_numpy()
+            r0 = grp["rng_min"].to_numpy(dtype=np.float32)       # km; CoordConv modelleri için
             for i in range(0, len(rows), args.batch):
                 r = rows[i:i + args.batch]
-                probs[pos[i:i + args.batch]] = M.predict_images(net, arr[r], variables, batch=args.batch, device=device)
+                probs[pos[i:i + args.batch]] = M.predict_images(net, arr[r], variables, batch=args.batch, device=device,
+                                                                r0_km=r0[i:i + args.batch])
                 done += len(r)
                 print(f"\r  {info.key}: {done:,}/{len(samples):,}", end="", flush=True)
         out = pd.DataFrame({"filename": samples["filename"].to_numpy(), "prob": probs})

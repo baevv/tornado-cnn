@@ -82,7 +82,7 @@ def discover(root: Path | None = None) -> list[ModelInfo]:
         if not ((d / "best.pt").exists() and (d / "results.json").exists()):
             continue
         res = json.loads((d / "results.json").read_text(encoding="utf-8"))
-        spec = exps.get(re.sub(r"_hizli$", "", d.name), {})
+        spec = exps.get(re.sub(r"_s\d+$", "", re.sub(r"_hizli$", "", d.name)), {})   # _s7: ek seed (M3)
         long = res.get("model_name") or spec.get("label") or d.name
         hist = []
         if (d / "history.json").exists():
@@ -156,21 +156,24 @@ def load_model(info: ModelInfo, device="cpu"):
     return net.to(device).eval()
 
 
-def predict_images(net, q: np.ndarray, variables, batch=128, device="cpu") -> np.ndarray:
-    """uint8 (N, C, H, W) → hortum olasılıkları (N,)."""
+def predict_images(net, q: np.ndarray, variables, batch=128, device="cpu", r0_km=None) -> np.ndarray:
+    """uint8 (N, C, H, W) → hortum olasılıkları (N,). r0_km (N,): kare başına rng_min, km (CoordConv modeli için)."""
     import torch
 
+    from src.helper.model import bind_range
     from src.helper.train import decode_batch
 
     out = []
     with torch.no_grad():
         for i in range(0, len(q), batch):
             xb = torch.from_numpy(np.ascontiguousarray(q[i:i + batch])).to(device)
-            out.append(torch.sigmoid(net(decode_batch(xb, variables)).squeeze(1)).cpu().numpy())
+            r = None if r0_km is None else np.asarray(r0_km, dtype=np.float32)[i:i + batch]
+            out.append(torch.sigmoid(bind_range(net, r)(decode_batch(xb, variables)).squeeze(1)).cpu().numpy())
     return np.concatenate(out) if out else np.zeros(0, dtype=np.float32)
 
 
-def gradcam(net, q: np.ndarray, variables, device="cpu") -> np.ndarray:
+def gradcam(net, q: np.ndarray, variables, device="cpu", r0_km=None) -> np.ndarray:
     """Her kare için Grad-CAM haritası, 0..1, girdi boyutunda: (N, H, W). Ayrıntı: src/helper/xai.py."""
+    from src.helper.model import bind_range
     from src.helper.xai import gradcam as _gradcam
-    return _gradcam(net, q, variables)
+    return _gradcam(bind_range(net, r0_km), q, variables)

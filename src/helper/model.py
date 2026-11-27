@@ -6,19 +6,43 @@ Mimari (girdi 3 × 120 × 240):
   → Dense 64 → ReLU → Dropout
   → Dense 1                            logit; sigmoid kayıp fonksiyonunun içinde uygulanır
 
-Sadece derste görülen katmanlar kullanıldı (evrişim, ReLU, havuzlama, tam bağlı, Dropout).
+İsteğe bağlı CoordConv (coord=True, karar K4): girdiye radara uzaklık r ve 1/r kanalları eklenir
+(3 radar kanalı + 2 = 5 kanal). Kutupsal ızgarada bir pikselin fiziksel boyutu ve ışının yüksekliği
+radara uzaklıkla değişir; evrişim bunu kendisi bilemez. Kanallar örneğin ilk mesafe hücresinin uzaklığından
+(rng_min) modelin içinde üretilir, bu yüzden açıklama (XAI) haritaları yalnızca radar kanalları üzerindedir.
 """
 import torch
 from torch import nn
+
+RANGE_GATE_KM = 0.25     # mesafe hücresi: 250 m
+MAX_RANGE_KM = 250.0     # r kanalının ölçek üst sınırı (TorNet pencereleri 0–~250 km)
+INV_REF_KM = 10.0        # 1/r ölçeği: 10 km / max(r, 10 km). 1 km ile kanal >50 km'de neredeyse sabit kalıyordu
+
+
+def range_channels(r0_km: torch.Tensor, height: int, width: int) -> torch.Tensor:
+    """Her örnek için radara uzaklık kanalları: (B,) ilk hücre uzaklığı, km → (B, 2, H, W), [-1, 1].
+
+    r_j  = rng_min + (j + 0,5) · 0,25 km   (j = 0..W-1, mesafe ekseni son boyut)
+    r    : negatifler 0'a kırpılır, [0, 250 km] → [-1, 1]
+    1/r  : 10 km / max(r, 10 km) ∈ (0, 1] → [-1, 1]   (ör. 30 km → -0,33; 100 km → -0,8)
+    Azimut boyunca sabittir (karar P2).
+    """
+    j = torch.arange(width, device=r0_km.device, dtype=torch.float32)
+    r = r0_km.float().view(-1, 1) + (j + 0.5) * RANGE_GATE_KM          # (B, W)
+    r_ch = r.clamp(0.0, MAX_RANGE_KM) / MAX_RANGE_KM * 2.0 - 1.0
+    inv_ch = (INV_REF_KM / r.clamp(min=INV_REF_KM)) * 2.0 - 1.0
+    ch = torch.stack([r_ch, inv_ch], dim=1)                              # (B, 2, W)
+    return ch.unsqueeze(2).expand(-1, -1, height, -1)
 
 
 class TornadoCNN(nn.Module):
     """Radar görüntüsünden (kanal × 120 × 240) hortum logit'i üreten CNN."""
 
     def __init__(self, in_channels=3, filters=(16, 32, 64, 128), hidden=64, dropout=0.3,
-                 pool="max", batch_norm=False):
+                 pool="max", batch_norm=False, coord=False):
         super().__init__()
-        blocks, c_in = [], in_channels
+        self.coord = bool(coord)                       # True: forward(x, r0_km) ister
+        blocks, c_in = [], in_channels + (2 if coord else 0)
         for c_out in filters:
             blocks.append(nn.Conv2d(c_in, c_out, kernel_size=3, padding=1))   # padding=1: boyut korunur
             if batch_norm:
@@ -45,9 +69,54 @@ class TornadoCNN(nn.Module):
             nn.Linear(hidden, 1),
         )
 
-    def forward(self, x):
-        """x: (B, C, H, W) → (B, 1) logit. Olasılık için torch.sigmoid(logit)."""
+    def forward(self, x, r0_km=None):
+        """x: (B, C, H, W) → (B, 1) logit. Olasılık için torch.sigmoid(logit).
+
+        coord=True ise r0_km (B,) verilmelidir: her örneğin ilk mesafe hücresinin radara uzaklığı, km.
+        """
+        if self.coord:
+            if r0_km is None:
+                raise ValueError("CoordConv modeli r0_km (örnek başına rng_min, km) ister")
+            r0_km = torch.as_tensor(r0_km, device=x.device).reshape(-1).expand(x.shape[0])
+            x = torch.cat([x, range_channels(r0_km, x.shape[2], x.shape[3]).to(x.dtype)], dim=1)
         return self.head(self.pool(self.features(x)))
+
+
+def needs_range(net) -> bool:
+    """Model ileri geçişte radara uzaklık (r0_km) istiyor mu? (CoordConv)"""
+    return bool(getattr(net, "coord", False))
+
+
+class WithRange(nn.Module):
+    """CoordConv modelini tek bir karenin uzaklığına bağlar: forward(x) = net(x, r0_km).
+
+    XAI yöntemleri aynı karenin bozulmuş kopyalarıyla çalışır (occlusion, IG, silme eğrisi);
+    hepsi net(x) çağırdığı için bu sarmalayıcıyla değişmeden kullanılabilir.
+    """
+
+    def __init__(self, net, r0_km):
+        super().__init__()
+        self.net = net
+        self.r0_km = torch.as_tensor(r0_km, dtype=torch.float32).reshape(-1)   # tek değer ya da kare başına
+
+    @property
+    def features(self):                     # Grad-CAM katmanı (xai.cam_layer) içteki modelden bulunur
+        return self.net.features
+
+    def forward(self, x):
+        r0 = self.r0_km.to(x.device)
+        if r0.numel() != x.shape[0]:
+            r0 = r0[:1].expand(x.shape[0])  # aynı karenin bozulmuş kopyaları (occlusion, IG, silme eğrisi)
+        return self.net(x, r0)
+
+
+def bind_range(net, r0_km):
+    """CoordConv modeliyse uzaklığa bağlanmış sarmalayıcı, değilse modelin kendisi."""
+    if not needs_range(net):
+        return net
+    if r0_km is None:
+        raise ValueError("CoordConv modeli için kare başına rng_min (km) gerekli")
+    return WithRange(net, r0_km)
 
 
 def make_resnet18(in_channels=3, pretrained=True, dropout=0.3):
@@ -124,7 +193,8 @@ def layer_table(model, input_shape=(3, 120, 240)):
     was_training = model.training
     model.eval()
     with torch.no_grad():
-        model(torch.zeros(1, *input_shape, device=next(model.parameters()).device))
+        x0 = torch.zeros(1, *input_shape, device=next(model.parameters()).device)
+        model(x0, torch.zeros(1, device=x0.device)) if needs_range(model) else model(x0)
     model.train(was_training)
     for h in hooks:
         h.remove()

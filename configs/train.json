@@ -7,6 +7,9 @@
     "patience": 4,
     "dropout": 0.3,
     "weighting": "pos_weight",
+    "monitor": "pr_auc",
+    "augment": false,
+    "label_smoothing": 0.0,
     "seed": 42,
     "num_workers": 2
 }

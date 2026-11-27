@@ -96,7 +96,7 @@ def main():
                    **{f"dist_{k}": (np.nan if d is None else d) for k, d in e["dist_km"].items()},
                    **{f"auc_{k}": a for k, a in e["auc"].items()}}
             if n_done < args.sanity:
-                er = xai.explain_frame(rnd_net, q, variables, del_steps=1, n_random=1)
+                er = xai.explain_frame(rnd_net, q, variables, del_steps=1, n_random=1, r0=float(r["rng_min"]))
                 for k in xai.METHODS:
                     row[f"sanity_{k}"] = xai.rank_corr(e["maps"][k], er["maps"][k])
             rows.append(row)
