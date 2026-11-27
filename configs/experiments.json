@@ -1,7 +1,7 @@
 {
   "repo": {
     "url": "https://github.com/baevv/tornado-cnn.git",
-    "branch": "m"
+    "branch": "main"
   },
   "baselines": [
     {
