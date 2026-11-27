@@ -83,7 +83,7 @@ def body(ss, store, models):
         try:
             n = cache.net(info.key, cache._mtime(info.folder / "best.pt"))
             from src.app.models import gradcam
-            cam = gradcam(n, q, store.variables)
+            cam = gradcam(n, q, store.variables, r0_km=show["rng_min"].to_numpy(dtype="float32"))
         except Exception as e:  # noqa: BLE001
             st.toast(f"Grad-CAM: {e}", icon=":material/error:")
     vi = store.variables.index("VEL") if "VEL" in store.variables else 0

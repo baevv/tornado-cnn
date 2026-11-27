@@ -78,18 +78,19 @@ def net(model_key: str, stamp: float):
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
-def live_scores(model_key: str, stamp: float, ep_id: int, _q: np.ndarray, variables: tuple) -> list:
-    """preds.parquet yoksa fırtınanın karelerini canlı skorlar."""
-    return M.predict_images(net(model_key, stamp), _q, list(variables)).tolist()
+def live_scores(model_key: str, stamp: float, ep_id: int, _q: np.ndarray, variables: tuple, _r0=None) -> list:
+    """preds.parquet yoksa fırtınanın karelerini canlı skorlar. _r0: kare başına rng_min, km (CoordConv)."""
+    return M.predict_images(net(model_key, stamp), _q, list(variables), r0_km=_r0).tolist()
 
 
 @st.cache_data(show_spinner=False, max_entries=48)
-def cam(model_key: str, stamp: float, ep_id, _q: np.ndarray, variables: tuple) -> np.ndarray:
-    """Grad-CAM, uint8 (F, H, W)."""
+def cam(model_key: str, stamp: float, ep_id, _q: np.ndarray, variables: tuple, _r0=None) -> np.ndarray:
+    """Grad-CAM, uint8 (F, H, W). _r0: kare başına rng_min, km (CoordConv)."""
     out = []
     n = net(model_key, stamp)
     for i in range(0, len(_q), 16):
-        out.append(M.gradcam(n, _q[i:i + 16], list(variables)))
+        r = None if _r0 is None else _r0[i:i + 16]
+        out.append(M.gradcam(n, _q[i:i + 16], list(variables), r0_km=r))
     return np.round(np.concatenate(out) * 255).astype(np.uint8)
 
 

@@ -89,6 +89,7 @@ def state(ss, store, root, models: list) -> dict:
 def episode_payload(ss, store, models: list, ep_id: int) -> dict:
     rows = store.frames(ep_id)
     q = store.images(rows)                                   # uint8 (F, C, 120, 240)
+    r0 = rows["rng_min"].to_numpy(dtype=np.float32)           # km; CoordConv modelleri için
     variables = tuple(store.variables)
     ep = store.episodes.loc[ep_id]
     stamp = cache._mtime(D.npy_dir() / D.SAMPLES_FILE)
@@ -102,7 +103,7 @@ def episode_payload(ss, store, models: list, ep_id: int) -> dict:
             scores[m.key] = [None if np.isnan(x) else round(float(x), 4) for x in v]
         elif ss.torch_ok and m.results.get("variables", list(variables)) == list(variables):
             try:
-                scores[m.key] = [round(x, 4) for x in cache.live_scores(m.key, cache._mtime(m.folder / "best.pt"), ep_id, q, variables)]
+                scores[m.key] = [round(x, 4) for x in cache.live_scores(m.key, cache._mtime(m.folder / "best.pt"), ep_id, q, variables, r0)]
             except Exception as e:  # noqa: BLE001  model açılamazsa kart boş kalır
                 st.toast(f"{m.label}: {e}", icon=":material/error:")
 
@@ -111,7 +112,7 @@ def episode_payload(ss, store, models: list, ep_id: int) -> dict:
     sel = next((m for m in models if m.key == ss.sel_model), None)
     if ss.torch_ok and sel is not None:
         try:
-            c = cache.cam(sel.key, cache._mtime(sel.folder / "best.pt"), ep_id, q, variables)
+            c = cache.cam(sel.key, cache._mtime(sel.folder / "best.pt"), ep_id, q, variables, r0)
             cam_b64, cam_model = base64.b64encode(c.tobytes()).decode("ascii"), sel.key
         except Exception as e:  # noqa: BLE001
             st.toast(f"Grad-CAM: {e}", icon=":material/error:")

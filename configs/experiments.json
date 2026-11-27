@@ -7,7 +7,12 @@
     {
       "name": "03_baseline",
       "label": "TornadoCNN (Global Max, pos_weight)",
-      "short": "Baseline CNN"
+      "short": "Baseline CNN",
+      "arch": "tornado_cnn",
+      "model_kwargs": {"pool": "max"},
+      "train": {},
+      "seeds": [42, 7, 123],
+      "note": "Ana karşılaştırma (karar M3): seed 42 = 03 defteri; 7 ve 123 05 defterinde (03_baseline_s7, 03_baseline_s123)"
     },
     {
       "name": "03_mit",
@@ -33,6 +38,7 @@
       "arch": "resnet18",
       "model_kwargs": {"pretrained": true},
       "train": {"lr": 0.0001},
+      "seeds": [42, 7, 123],
       "required": true,
       "note": "ImageNet ön-eğitimli, [-1, 1] radar ölçeği, lr=1e-4"
     },
@@ -55,6 +61,36 @@
       "train": {},
       "required": false,
       "note": "Conv2d -> BatchNorm2d -> ReLU -> MaxPool2d"
+    },
+    {
+      "name": "05_cnn_coord",
+      "label": "TornadoCNN (Global Max + CoordConv)",
+      "short": "CNN · CoordConv",
+      "arch": "tornado_cnn",
+      "model_kwargs": {"pool": "max", "coord": true},
+      "train": {},
+      "required": false,
+      "note": "Girdiye radara uzaklık r ve 1/r kanalları (örnek başına rng_min'den, karar K4/P2): 3 + 2 = 5 kanal"
+    },
+    {
+      "name": "05_cnn_aug",
+      "label": "TornadoCNN (Global Max + augmentation)",
+      "short": "CNN · augmentation",
+      "arch": "tornado_cnn",
+      "model_kwargs": {"pool": "max"},
+      "train": {"augment": true},
+      "required": false,
+      "note": "Yalnız eğitimde, her iki sınıfa: azimut ±4 / mesafe ±5 hücre kaydırma (boş kenar = ölçüm yok) + ölçülmüş piksellere Gauss gürültüsü (DBZ 1 dBZ, VEL 1 m/s, WIDTH 0,25 m/s); ayna/döndürme yok (karar A2/A3)"
+    },
+    {
+      "name": "05_cnn_ls",
+      "label": "TornadoCNN (Global Max + label smoothing)",
+      "short": "CNN · label smoothing",
+      "arch": "tornado_cnn",
+      "model_kwargs": {"pool": "max"},
+      "train": {"label_smoothing": 0.1},
+      "required": false,
+      "note": "Yalnız pozitif etiketler 1 → 0,9; negatifler 0 kalır (pos_weight ile uyum, karar O2)"
     }
   ]
 }

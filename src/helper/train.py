@@ -90,17 +90,38 @@ def load_data(processed_dir, splits: pd.DataFrame, years, which=("train", "val")
 
 
 class RadarDataset(Dataset):
-    """Bellekteki uint8 dizilerden (görüntü, etiket, örnek ağırlığı) döndürür."""
+    """Bellekteki uint8 dizilerden (görüntü, etiket, örnek ağırlığı, ilk mesafe hücresinin uzaklığı km) döndürür.
 
-    def __init__(self, X, y, w=None):
+    Uzaklık (r0) yalnızca CoordConv modelleri için kullanılır (karar K4); bilinmiyorsa NaN.
+    """
+
+    def __init__(self, X, y, w=None, r0_km=None):
         self.X, self.y = X, y
         self.w = np.ones(len(y), dtype=np.float32) if w is None else w.astype(np.float32)
+        self.r0 = np.full(len(y), np.nan, dtype=np.float32) if r0_km is None else np.asarray(r0_km, dtype=np.float32)
 
     def __len__(self):
         return len(self.y)
 
     def __getitem__(self, i):
-        return torch.from_numpy(self.X[i]), self.y[i], self.w[i]
+        return torch.from_numpy(self.X[i]), self.y[i], self.w[i], self.r0[i]
+
+
+def range_km(meta: pd.DataFrame | None):
+    """Bölme tablosundaki rng_min (metre, catalog.csv) → km. Sütun yoksa None (eski splits.csv)."""
+    if meta is None or "rng_min" not in meta:
+        return None
+    return meta["rng_min"].to_numpy(dtype=np.float32) / 1000.0
+
+
+def forward(model, x, r0_km=None):
+    """Modeli çalıştırır; CoordConv modeline örnek başına uzaklığı da verir."""
+    if getattr(model, "coord", False):
+        if r0_km is None or torch.isnan(r0_km).any():
+            raise ValueError("CoordConv modeli için rng_min gerekli: splits.csv eski olabilir, "
+                             "02 defterinin 3. bölümünü yeniden çalıştırın")
+        return model(x, r0_km)
+    return model(x)
 
 
 def decode_batch(xb, variables):
@@ -111,6 +132,47 @@ def decode_batch(xb, variables):
     x = (xb.float() - 1.0) / 254.0 * 2.0 - 1.0
     fill = torch.tensor([FILL_VALUES.get(v, -1.0) for v in variables], device=xb.device).view(1, -1, 1, 1)
     return torch.where(xb == 0, fill.expand_as(x), x)
+
+
+# ---------------------------------------------------------------- augmentation (karar A2)
+
+AUG_MAX_AZ = 4                   # azimut kaydırması: en fazla ±4 hücre (±2°)
+AUG_MAX_RNG = 5                  # mesafe kaydırması: en fazla ±5 hücre (±1,25 km)
+AUG_NOISE = {"DBZ": 1.0, "VEL": 1.0, "WIDTH": 0.25}   # Gauss gürültüsü σ, fiziksel birimde (dBZ, m/s, m/s)
+
+
+def augment_batch(xb, r0_km, variables, max_az=AUG_MAX_AZ, max_rng=AUG_MAX_RNG, noise=AUG_NOISE):
+    """Yalnız eğitimde, fiziksel olarak geçerli bozulmalar (karar A2). Her iki sınıfa da uygulanır.
+
+    xb: uint8 (B, C, H, W) [H = azimut, W = mesafe], r0_km: (B,) ilk mesafe hücresinin uzaklığı.
+      1. Her örnek azimutta ±max_az, mesafede ±max_rng hücre rastgele kaydırılır. Boşalan kenar
+         "ölçüm yok" (uint8 0) ile dolar; roll kullanılmaz (kenarlar birbirine yapışmasın).
+      2. Mesafe kaydırması CoordConv için r0'a da yansıtılır: içerik k hücre uzağa kayarsa r0 k · 0,25 km
+         azalır, yani her yankının fiziksel uzaklığı değişmez (r kanalı görüntüyle birlikte kayar).
+      3. Ölçülmüş piksellere (0 olmayan) küçük Gauss gürültüsü eklenir; boş piksellere dokunulmaz.
+    Ayna ve döndürme yoktur (karar A3: radyal hız ve kutupsal ızgara).
+    Döner: (float girdi [-1, 1], güncellenmiş r0_km)
+    """
+    from src.helper.model import RANGE_GATE_KM
+    from src.helper.tornet import CHANNEL_RANGES
+
+    B, C, H, W = xb.shape
+    dev = xb.device
+    da = torch.randint(-max_az, max_az + 1, (B,), device=dev)
+    dr = torch.randint(-max_rng, max_rng + 1, (B,), device=dev)
+    padded = torch.nn.functional.pad(xb, (max_rng, max_rng, max_az, max_az))          # 0 = ölçüm yok
+    rows = torch.arange(H, device=dev)[None, :] + (max_az - da)[:, None]                # (B, H)
+    cols = torch.arange(W, device=dev)[None, :] + (max_rng - dr)[:, None]               # (B, W)
+    b = torch.arange(B, device=dev)[:, None, None]
+    shifted = padded.permute(0, 2, 3, 1)[b, rows[:, :, None], cols[:, None, :]]         # (B, H, W, C)
+    shifted = shifted.permute(0, 3, 1, 2).contiguous()
+    r0_km = r0_km - dr.to(r0_km.dtype).to(r0_km.device) * RANGE_GATE_KM
+
+    x = decode_batch(shifted, variables)
+    sigma = torch.tensor([2.0 * noise.get(v, 0.0) / (CHANNEL_RANGES[v][1] - CHANNEL_RANGES[v][0]) for v in variables],
+                         device=dev).view(1, -1, 1, 1)                                  # fiziksel σ → [-1, 1] ölçeği
+    noisy = (x + torch.randn_like(x) * sigma).clamp(-1.0, 1.0)
+    return torch.where(shifted != 0, noisy, x), r0_km
 
 
 # ---------------------------------------------------------------- kayıp ağırlıkları
@@ -141,10 +203,11 @@ def make_loaders(data, cfg, weights_train):
     g = torch.Generator()
     g.manual_seed(cfg["seed"])
     pin = torch.cuda.is_available()
-    train = DataLoader(RadarDataset(data["train"]["X"], data["train"]["y"], weights_train),
+    train = DataLoader(RadarDataset(data["train"]["X"], data["train"]["y"], weights_train,
+                                    range_km(data["train"].get("meta"))),
                        batch_size=cfg["batch_size"], shuffle=True, generator=g,
                        num_workers=cfg["num_workers"], pin_memory=pin, drop_last=False)
-    val = DataLoader(RadarDataset(data["val"]["X"], data["val"]["y"]),
+    val = DataLoader(RadarDataset(data["val"]["X"], data["val"]["y"], None, range_km(data["val"].get("meta"))),
                      batch_size=cfg["batch_size"] * 2, shuffle=False,
                      num_workers=cfg["num_workers"], pin_memory=pin)
     return train, val
@@ -177,18 +240,80 @@ def predict(model, loader, variables, device, pos_weight=1.0):
     model.eval()
     crit = _loss_fn(pos_weight, device)
     probs, total, n = [], 0.0, 0
-    for xb, yb, wb in loader:
+    for xb, yb, wb, rb in loader:
         x = decode_batch(xb.to(device, non_blocking=True), variables)
         yb, wb = yb.to(device), wb.to(device)
-        logit = model(x).squeeze(1)
+        logit = forward(model, x, rb.to(device)).squeeze(1)
         total += (crit(logit, yb) * wb).sum().item()
         n += len(yb)
         probs.append(torch.sigmoid(logit).cpu())
     return torch.cat(probs).numpy(), total / max(n, 1)
 
 
+MONITORS = {"pr_auc": "doğrulama PR-AUC", "roc_auc": "doğrulama AUC"}
+
+
+def monitor_column(cfg) -> str:
+    """Erken durdurma ve lr planlamasının izlediği geçmiş sütunu (karar O1: varsayılan PR-AUC)."""
+    key = cfg.get("monitor", "pr_auc")
+    if key not in MONITORS:
+        raise ValueError(f"bilinmeyen izleme ölçütü: {key} ({' / '.join(MONITORS)} olmalı)")
+    return MONITORS[key]
+
+
+def smooth_targets(y, ls: float):
+    """Yalnız pozitif etiketlere label smoothing (karar O2): 1 → 1 − ls, 0 → 0.
+
+    Simetrik smoothing (0 → ls/2) sınıf ağırlığıyla birlikte bozulur: her negatifin küçük pozitif hedefi de
+    ~11,7 ile çarpılır ve ~63 bin negatif, pozitif yöndeki kaybın ~%38'ini oluşturur. Ağırlıklandırma: train_loss.
+    Yalnız eğitim kaybında kullanılır; doğrulama kaybı ve ölçütler gerçek etiketlerle hesaplanır.
+    """
+    if not ls:
+        return y
+    if not 0.0 < ls < 1.0:
+        raise ValueError(f"label_smoothing 0 ile 1 arasında olmalı: {ls}")
+    return y * (1.0 - ls)
+
+
+def train_loss(logit, y, w, pos_weight: float, ls: float = 0.0):
+    """Eğitim kaybı: ağırlıklı ikili çapraz entropi, grup ortalaması.
+
+    ls = 0: BCEWithLogitsLoss(pos_weight) (temel model).
+    ls > 0: Sınıf dengesi pos_weight yerine ÖRNEK AĞIRLIĞIYLA verilir (pozitif örneğin kaybının tamamı
+      pos_weight ile çarpılır). ls = 0'da ikisi matematiksel olarak aynıdır. Fark: pos_weight yalnız
+      "hortum" terimini çarptığı için 1 → 0,9 hedefinde kaybı en küçük yapan olasılık 0,991 olurdu
+      (smoothing neredeyse etkisiz); örnek ağırlığıyla gerçekten 0,9 olur (karar O2).
+    """
+    if not ls:
+        return (_loss_fn(pos_weight, logit.device)(logit, y) * w).mean()
+    bce = nn.functional.binary_cross_entropy_with_logits(logit, smooth_targets(y, ls), reduction="none")
+    return (bce * w * torch.where(y > 0.5, pos_weight, 1.0)).mean()
+
+
+def seed_folder(name: str, seed: int, default_seed: int = 42) -> str:
+    """Çoklu seed klasör adı (karar M3): varsayılan seed klasör adını değiştirmez, diğerleri _s<seed> alır.
+
+    03_baseline (seed 42), 03_baseline_s7, 03_baseline_s123. Hızlı denemede sona _hizli eklenir.
+    """
+    return name if int(seed) == int(default_seed) else f"{name}_s{int(seed)}"
+
+
+def seed_group(folder: str) -> tuple[str, int | None]:
+    """Klasör adından (deney adı, seed): "05_resnet18_pretrained_s7_hizli" → ("05_resnet18_pretrained_hizli", 7)."""
+    import re
+    m = re.match(r"^(.*)_s(\d+)(_hizli)?$", folder)
+    if not m:
+        return folder, None
+    return m.group(1) + (m.group(3) or ""), int(m.group(2))
+
+
+def best_epoch(history: pd.DataFrame, cfg) -> int:
+    """Geçmişte izlenen ölçütün en yüksek olduğu tur (fit'in seçtiği tur ile aynı)."""
+    return int(history.loc[history[monitor_column(cfg)].idxmax(), "tur"])
+
+
 def make_scheduler(opt, cfg):
-    """Öğrenme oranı planlaması. "plateau": doğrulama AUC'si 2 tur iyileşmezse lr yarıya iner."""
+    """Öğrenme oranı planlaması. "plateau": izlenen doğrulama ölçütü (PR-AUC) 2 tur iyileşmezse lr yarıya iner."""
     if cfg.get("scheduler") == "plateau":
         return torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode="max", factor=0.5, patience=1)
     if cfg.get("scheduler") is None:
@@ -206,7 +331,9 @@ def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, de
     """Eğitim döngüsü: her grupta ileri yayılım → kayıp → geri yayılım → güncelleme.
 
     * Her turdan sonra doğrulama kaybı, ROC-AUC ve PR-AUC hesaplanır.
-    * Erken durdurma: doğrulama AUC'si `patience` tur üst üste iyileşmezse durur; en iyi ağırlıklara dönülür.
+    * İzlenen ölçüt cfg["monitor"] (varsayılan "pr_auc", karar O1). En iyi tur, erken durdurma ve
+      lr planlaması bu ölçüte göredir.
+    * Erken durdurma: izlenen ölçüt `patience` tur üst üste iyileşmezse durur; en iyi ağırlıklara dönülür.
     * Her tur out_dir'e kaydedilir (last.pt); hücre tekrar çalıştırılınca kaldığı turdan devam eder.
     Döner: tur tur geçmiş (DataFrame)
     """
@@ -217,8 +344,9 @@ def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, de
     last_path, best_path = out_dir / "last.pt", out_dir / "best.pt"
     opt = make_optimizer(model, cfg)
     sched = make_scheduler(opt, cfg)
-    crit = _loss_fn(pos_weight, device)
-    state = {"epoch": 0, "history": [], "best_auc": -1.0, "best_epoch": 0, "bad_epochs": 0, "done": False}
+    monitor = monitor_column(cfg)
+    ls = float(cfg.get("label_smoothing", 0.0))        # karar O2: yalnız pozitif etiketler, 1 → 1 − ls
+    state = {"epoch": 0, "history": [], "best_score": -1.0, "best_epoch": 0, "bad_epochs": 0, "done": False}
 
     if last_path.exists():
         ck = torch.load(last_path, map_location=device, weights_only=False)
@@ -238,11 +366,15 @@ def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, de
         lr_now = opt.param_groups[0]["lr"]
         model.train()
         total, n = 0.0, 0
-        for xb, yb, wb in train_loader:
-            x = decode_batch(xb.to(device, non_blocking=True), variables)
+        for xb, yb, wb, rb in train_loader:
+            xb, rb = xb.to(device, non_blocking=True), rb.to(device)
+            if cfg.get("augment"):                      # karar A2: yalnız eğitimde, her iki sınıfa
+                x, rb = augment_batch(xb, rb, variables)
+            else:
+                x = decode_batch(xb, variables)
             yb, wb = yb.to(device), wb.to(device)
-            logit = model(x).squeeze(1)                 # 1. ileri yayılım
-            loss = (crit(logit, yb) * wb).mean()        # 2. kayıp
+            logit = forward(model, x, rb).squeeze(1)    # 1. ileri yayılım
+            loss = train_loss(logit, yb, wb, pos_weight, ls)            # 2. kayıp
             opt.zero_grad()
             loss.backward()                             # 3. geri yayılım
             opt.step()                                  # 4. ağırlık güncelleme
@@ -255,12 +387,13 @@ def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, de
         row = {"tur": state["epoch"], "eğitim kaybı": total / n, "doğrulama kaybı": val_loss,
                "doğrulama AUC": auc, "doğrulama PR-AUC": pr_auc, "süre (sn)": time.time() - t0, "lr": lr_now}
         state["history"].append(row)
+        score = row[monitor]
         if sched is not None:
-            sched.step(auc)
+            sched.step(score)
 
         mark = ""
-        if auc > state["best_auc"]:
-            state.update(best_auc=auc, best_epoch=state["epoch"], bad_epochs=0)
+        if score > state["best_score"]:
+            state.update(best_score=score, best_epoch=state["epoch"], bad_epochs=0)
             torch.save(model.state_dict(), best_path)
             mark = "  ★ en iyi"
         else:
@@ -277,7 +410,7 @@ def fit(model, train_loader, val_loader, cfg, variables, out_dir, pos_weight, de
     model.load_state_dict(torch.load(best_path, map_location=device))
     history = pd.DataFrame(state["history"])
     history.to_json(out_dir / "history.json", orient="records", indent=1, force_ascii=False)
-    log(f"En iyi tur: {state['best_epoch']} (doğrulama AUC {state['best_auc']:.4f}). Bu turun ağırlıkları yüklendi.")
+    log(f"En iyi tur: {state['best_epoch']} ({monitor} {state['best_score']:.4f}). Bu turun ağırlıkları yüklendi.")
     return history
 
 

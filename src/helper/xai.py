@@ -35,6 +35,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from src.helper.model import bind_range
 from src.helper.train import decode_batch
 
 METHODS = {"cam": "Grad-CAM", "ig": "Integrated Gradients", "occ": "Occlusion"}
@@ -274,6 +275,7 @@ def explain_frame(net, q: np.ndarray, variables, rot_cell=None, az0=0.0, r0=0.0,
       deletion {yöntem | "rnd": (oran, skor)}, auc {yöntem | "rnd": alan}
     """
     variables = list(variables)
+    net = bind_range(net, r0)               # CoordConv modeli: r, 1/r kanalları bu karenin uzaklığından
     cam = gradcam(net, q[None], variables)[0]
     ig = integrated_gradients(net, q, variables, steps=ig_steps)
     occ = occlusion(net, q, variables, patch=patch)
