@@ -15,8 +15,9 @@
 <div class="app" id="app">
   <!-- Şerit 1: logo + sekme simgeleri | sekmeye özel araç çubuğu -->
   <header class="bar1">
-    <div class="logo" id="logo" aria-label="Logo"></div>
+    <button class="logo" id="logo" aria-label="Ana sayfa" title="Ana sayfa"></button>
     <nav class="dock" role="tablist" aria-label="Bölümler" id="tabs"></nav>
+    <div class="dock" id="mview" aria-label="Gösterilen modeller"></div>
     <span class="divider" aria-hidden="true"></span>
 
     <div class="ctx" id="ctx-ozet" hidden>
@@ -59,6 +60,13 @@
         <button class="rb tgl" id="ht-comp" aria-pressed="false" data-tip="Kompozit: dört uç grubun ortalama görüntüsü (X1)" aria-label="Kompozit"><svg class="ico"><use href="#i-layers"/></svg></button>
       </div>
     </div>
+    <div class="ctx" id="ctx-harita" hidden>
+      <div class="dock" id="hr-view" aria-label="Harita görünümü"></div>
+      <div class="dock" id="hr-color" aria-label="Renk"></div>
+      <div class="dock" id="hr-models" aria-label="Model"></div>
+      <div class="spacer"></div>
+      <div class="dock" id="hr-split" aria-label="Veri bölümü"></div>
+    </div>
     <div class="ctx" id="ctx-xai" hidden>
       <div class="dock" id="ax-models" aria-label="Model"></div>
       <div class="dock" id="ax-view" aria-label="Görünüm"></div>
@@ -73,6 +81,15 @@
       <div class="dock" id="ax-split" aria-label="Veri bölümü"></div>
     </div>
   </header>
+
+  <!-- Ana sayfa: sunum. Sağ kenara tık / → ileri, sol kenar / ← geri, Boşluk oynat (görünür düğme yok). Slaytlar app.js'te (SLIDES) -->
+  <div id="ana" hidden>
+    <section class="panel deck" id="deck" aria-roledescription="sunum">
+      <div class="slides" id="slides"></div>
+      <button class="dhit l" id="hit-l" aria-label="Geri" tabindex="-1"></button>
+      <button class="dhit r" id="hit-r" aria-label="İleri" tabindex="-1"></button>
+    </section>
+  </div>
 
   <!-- Gezgin gövdesi -->
   <div id="gezgin" hidden>

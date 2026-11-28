@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Fırtına bulutu + hortum (cartoon tarzı: kalın kontur, düz renkler) -->
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <!-- hortum gövdesi -->
+    <path d="M15 26C17 34 24 37 26 43C28 49 25 53 28 58Q31 59.5 32 56C33 51 37 47 38 42C40 35 47 33 49 26Z"
+          fill="#F2A022" stroke="#1E2633" stroke-width="2.6"/>
+    <!-- gölge tarafı -->
+    <path d="M49 26C47 33 40 35 38 42C37 47 33 51 32 56C34.5 51 38.5 47.5 40.5 42.5C42.5 36.5 46 33.5 49 26Z"
+          fill="#C97A0A"/>
+    <!-- dönme çizgileri -->
+    <g fill="none" stroke="#1E2633" stroke-width="1.9">
+      <path d="M19.5 32.5Q32 36.5 45.5 32"/>
+      <path d="M25.5 39.5Q32 42 39.5 39"/>
+      <path d="M27.2 47Q31.5 48.6 35.8 46.5"/>
+    </g>
+    <path d="M21 35.5Q23.5 37.5 24.8 40" fill="none" stroke="#FFD98A" stroke-width="1.8"/>
+
+    <!-- bulut: önce kontur, sonra dolgu (iç çizgi kalmasın) -->
+    <g stroke="#1E2633" stroke-width="5.2" fill="#1E2633">
+      <circle cx="19" cy="20" r="8.5"/>
+      <circle cx="32" cy="14.5" r="10.5"/>
+      <circle cx="45" cy="19.5" r="8.5"/>
+      <rect x="10" y="18" width="44" height="11" rx="5.5"/>
+    </g>
+    <g fill="#9AA8BC">
+      <circle cx="19" cy="20" r="8.5"/>
+      <circle cx="32" cy="14.5" r="10.5"/>
+      <circle cx="45" cy="19.5" r="8.5"/>
+      <rect x="10" y="18" width="44" height="11" rx="5.5"/>
+    </g>
+    <!-- bulut üst ışığı -->
+    <g fill="#C9D3E0">
+      <circle cx="19" cy="18.5" r="6.5"/>
+      <circle cx="32" cy="13" r="8.5"/>
+      <circle cx="45" cy="18" r="6.5"/>
+      <rect x="13" y="17" width="38" height="6" rx="3"/>
+    </g>
+    <g fill="none" stroke="#FFFFFF" stroke-width="2">
+      <path d="M25.5 9.5Q28 6.5 32 6.3"/>
+      <path d="M13.5 17Q15 14.2 18 13.6"/>
+    </g>
+
+    <!-- rüzgâr çizgileri ve savrulan parçalar -->
+    <g fill="none" stroke="#1E2633" stroke-width="2.2">
+      <path d="M8 37q4 1.5 8-.5"/>
+      <path d="M48 41q4 .5 7.5-2"/>
+    </g>
+    <rect x="40" y="50" width="4" height="4" rx=".8" transform="rotate(25 42 52)" fill="#8A5A2B" stroke="#1E2633" stroke-width="1.5"/>
+    <rect x="18" y="46.5" width="3.2" height="3.2" rx=".6" transform="rotate(-20 19.6 48.1)" fill="#8A5A2B" stroke="#1E2633" stroke-width="1.5"/>
+  </g>
+</svg>

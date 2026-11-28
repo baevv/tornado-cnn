@@ -12,6 +12,7 @@ Sırasıyla:
   6. Arka planda, arayüz açıkken açıklanabilirlik hesaplarını yapar (uzun sürer; bittikçe sayfa yenilenince görünür):
        scripts/make_xai_global.py   dönme tablosu (X2), bütün testte kanal SHAP (X3), kompozitler (X1)
        scripts/make_xai.py          kare başına açıklama ölçüleri (konum haritası X4 dahil)
+     Yalnız ana karşılaştırma + ablasyon modelleri için (ek seed'ler, 04_ ve _hizli klasörleri atlanır).
 
 Seçenekler:
   python main.py --data "<veri klasörü>" --models "<model klasörü>"
@@ -134,17 +135,24 @@ def _fresh(f: Path, ref: Path) -> bool:
     return f.exists() and f.stat().st_mtime > ref.stat().st_mtime
 
 
-def needs_xai(models: Path, data: Path) -> tuple[bool, list]:
-    """(make_xai_global gerekli mi, make_xai gereken modeller). Skoru olmayan model atlanır."""
+def needs_xai(models: Path, data: Path) -> tuple[list, list]:
+    """(make_xai_global gereken modeller, make_xai gereken modeller).
+
+    Yalnız arayüzün varsayılan olarak gösterdiği modeller (ana karşılaştırma + ablasyonlar): ek seed'ler, 04
+    hiperparametre denemeleri ve hızlı denemeler için saatlerce hesap yapılmaz. Skoru olmayan model atlanır.
+    Dönme tablosu (modelden bağımsız) eksikse global liste boş da olsa make_xai_global çalışır.
+    """
     import pyarrow.parquet as pq
-    glob_todo = not (data / "processed" / "npy" / "rotation.parquet").exists()
-    frame_todo = []
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from src.app.models import model_role
+    glob_todo, frame_todo = [], []
     for d in _model_dirs(models):
         best = d / "best.pt"
-        if not (d / "preds.parquet").exists():
+        if not (d / "preds.parquet").exists() or model_role(d.name) not in ("main", "ablation"):
             continue
         if not (_fresh(d / "shap_all.parquet", best) and _fresh(d / "composites.npz", best)):
-            glob_todo = True
+            glob_todo.append(d.name)
         x = d / "xai.parquet"
         if not _fresh(x, best) or "loc_gap" not in pq.read_schema(x).names:   # eski dosya: konum haritası (X4) yok
             frame_todo.append(d.name)
@@ -160,7 +168,9 @@ def xai_background(models: Path, data: Path, env):
         return
     cmds = []
     if glob_todo:
-        cmds.append([sys.executable, "-u", "scripts/make_xai_global.py"])
+        cmds.append([sys.executable, "-u", "scripts/make_xai_global.py", "--models", *glob_todo])
+    elif not (data / "processed" / "npy" / "rotation.parquet").exists():
+        cmds.append([sys.executable, "-u", "scripts/make_xai_global.py", "--only", "rotation"])
     if frame_todo:
         cmds.append([sys.executable, "-u", "scripts/make_xai.py", "--force", "--models", *frame_todo])
     if not cmds:

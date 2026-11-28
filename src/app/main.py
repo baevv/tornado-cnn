@@ -7,7 +7,7 @@ Veri:    $TORNADO_DATA_DIR/processed/npy  (scripts/export_npy.py ile bir kez haz
 Modeller: $TORNADO_MODELS_DIR ya da <data_dir>/../models; her alt klasör = bir model (best.pt + results.json)
 Skorlar:  models/<ad>/preds.parquet (scripts/make_preds.py)
 
-Sekmeler: Özet · Fırtına Gezgini · Model Karşılaştırma · Hata Analizi · Açıklanabilirlik.
+Sekmeler: Ana sayfa (sunum, logoya tıklayınca) · Özet · Fırtına Gezgini · Model Karşılaştırma · Hata Analizi · Açıklanabilirlik · Harita.
 Üst bar ve Gezgin, src/app/frontend altındaki bileşendir; diğer sekmelerin gövdesi Plotly ile çizilir.
 """
 import sys
@@ -23,18 +23,26 @@ st.set_page_config(page_title="Fırtına Gezgini", page_icon=str(Path(__file__).
                    layout="wide", initial_sidebar_state="collapsed")
 
 from src.app import cache, shell, theme  # noqa: E402
+from src.app import evaluate as E  # noqa: E402
 from src.app import models as M  # noqa: E402
-from src.app.tabs import gezgin, hata, kars, ozet, xai  # noqa: E402
+from src.app.tabs import ana, gezgin, harita, hata, kars, ozet, xai  # noqa: E402
 
-TABS = {"ozet": ozet, "gezgin": gezgin, "kars": kars, "hata": hata, "xai": xai}
+TABS = {"ana": ana, "ozet": ozet, "gezgin": gezgin, "kars": kars, "hata": hata, "xai": xai, "harita": harita}
 
 theme.inject()
 ss = st.session_state
 store, root = cache.store()
-models = cache.models()
+all_models = cache.models()
+ss.setdefault("model_view", "core")          # core: temel 3 · main: ana + ablasyon · seeds: + ek seed'ler · all: hepsi
+_ev = ss.get(shell.KEY)
+if isinstance(_ev, dict) and _ev.get("a") == "model_view" and _ev.get("n") != ss.get("_last_ev"):
+    ss.model_view = _ev["view"]               # model listesi aşağıda bu görünüme göre süzülür
+# Temel 3: doğrulamada en iyi TornadoCNN, en iyi ResNet-18 ve öteki ResNet-18 (evaluate.core_models); sunum da bunları anlatır
+core = E.core_models(store) if store is not None else []
+models = (core or M.visible(all_models, "main")) if ss.model_view == "core" else M.visible(all_models, ss.model_view)
 
 # ---------------------------------------------------------------- varsayılanlar
-ss.setdefault("tab", "gezgin")
+ss.setdefault("tab", "ana")                   # uygulama sunumla (ana sayfa) açılır
 ss.setdefault("torch_ok", M.torch_available())
 if models and ss.get("sel_model") not in {m.key for m in models}:
     ss.sel_model = models[0].key
@@ -44,7 +52,7 @@ gezgin.defaults(ss)
 if store is not None and not (store.samples["split"] == "val").any():
     for k in ("oz_split", "ks_split", "ht_split"):
         ss.setdefault(k, "test")
-for mod in (ozet, kars, hata, xai):
+for mod in (ana, ozet, kars, hata, xai, harita):
     mod.defaults(ss, models)
 
 # ---------------------------------------------------------------- bileşenden gelen son eylem
@@ -54,6 +62,8 @@ if isinstance(ev, dict) and ev.get("n") != ss.get("_last_ev"):
     a = ev.get("a")
     if a == "tab":
         ss.tab = ev["tab"]
+    elif a == "model_view":
+        pass                                  # yukarıda, model listesi süzülmeden önce işlendi
     elif a == "model":
         ss.sel_model = ev["key"]
     elif a in ("filter", "split", "goto", "random", "epid"):
@@ -69,13 +79,17 @@ if isinstance(ev, dict) and ev.get("n") != ss.get("_last_ev"):
             xai.open_frame(ss, int(ev["id"]), int(ev["frame"]), ev.get("model") or ss.sel_model)
         except (KeyError, ValueError):
             pass
+    elif a.startswith("harita_"):
+        harita.handle(ev, ss)
     elif a.startswith("xai_"):
         xai.handle(ev, ss, store)
 
 # ---------------------------------------------------------------- bileşen durumu
 public_models = [{"key": m.key, "label": m.label, "long": m.long_label, "color": m.color, "thr": m.threshold,
-                  "params": m.params} for m in models]
-state = {"tab": ss.tab, "models": public_models, "sel_model": ss.sel_model, "torch": ss.torch_ok}
+                  "params": m.params, "role": "main" if ss.model_view == "core" else m.role} for m in models]
+views = {"core": len(core), **{k: len(M.visible(all_models, k)) for k in M.VIEWS}}
+state = {"tab": ss.tab, "models": public_models, "sel_model": ss.sel_model, "torch": ss.torch_ok,
+         "model_view": ss.model_view, "view_counts": views}
 if ss.tab == "gezgin":
     state["gezgin"] = gezgin.state(ss, store, root, models)
 else:

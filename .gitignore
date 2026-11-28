@@ -1,5 +1,7 @@
 # Data never goes to GitHub (raw TorNet is ~170 GB, processed arrays are GBs)
 study_materials/
+articles/
+reports/
 data/
 *.nc
 *.tar.gz

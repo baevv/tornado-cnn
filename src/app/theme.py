@@ -64,6 +64,16 @@ iframe[title="src.app.shell.firtina_shell"], iframe[title*="firtina_shell"] {{ d
 .xb {{ display: flex; gap: 10px; align-items: flex-start; margin: 6px 0; font-size: 13px; color: #2A3340; line-height: 1.45; }}
 .xb i {{ width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; }}
 .xd {{ font-size: 12.5px; color: #3E4857; margin: 2px 2px 0; }}
+.xsplit {{ display: grid; grid-template-columns: minmax(250px, 0.85fr) 2fr; gap: 16px; align-items: start; margin-top: 6px; }}
+.xsplit .xk {{ grid-template-columns: 1fr; margin: 0; gap: 6px; }}
+.xsplit .xk > div {{ display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: 10px; padding: 7px 10px; }}
+.xsplit .xk .k {{ grid-column: 1; }}
+.xsplit .xk .n {{ grid-column: 2; grid-row: 1 / span 2; font-size: 24px; text-align: right; align-self: center; }}
+.xsplit .xk .s {{ grid-column: 1; }}
+.xsplit .xc {{ border-left: 1px solid {LINE}; padding-left: 16px; }}
+.xsplit .xc .xb {{ font-size: 14px; margin: 4px 0 10px; }}
+.xsplit .xc .xb:first-child {{ margin-top: 2px; }}
+@media (max-width: 900px) {{ .xsplit {{ grid-template-columns: 1fr; }} .xsplit .xc {{ border-left: none; padding-left: 0; }} }}
 </style>
 """
 

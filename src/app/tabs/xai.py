@@ -269,9 +269,10 @@ def _frame(ss, store, info):
     kpis = [("En etkili kanal", variables[top], f"{e['phi'][top]:+.3f}"),
             ("Zirve ↔ dönme", "—" if d is None else f"{fmt(d, 1)} km", P.METHOD_NAMES[method]),
             ("Silme alanı", fmt(a, 3), f"rastgele {fmt(ar, 3)} · düşük = sadık")]
-    st.html("<div class='xbox'><div class='h-panel'>Yorum</div><div class='xk'>"
+    # Tek satır, iki sütun: solda üç ölçü (alt alta, kompakt), sağda bu ölçülerden üretilen yorum cümleleri
+    st.html("<div class='xbox'><div class='h-panel'>Yorum</div><div class='xsplit'><div class='xk'>"
             + "".join(f"<div><div class='k'>{k}</div><div class='n'>{v}</div><div class='s'>{s}</div></div>" for k, v, s in kpis)
-            + "</div>" + _bullets_html(frame_bullets(e, variables, method, thr, rot)) + "</div>")
+            + "</div><div class='xc'>" + _bullets_html(frame_bullets(e, variables, method, thr, rot)) + "</div></div></div>")
 
 
 # ---------------------------------------------------------------- genel

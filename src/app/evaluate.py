@@ -28,14 +28,15 @@ def ensembles(models: list) -> list:
     Eşik burada üyelerin eşik ortalamasıdır; with_ensembles doğrulama skorları varsa eşiği orada F1 ile yeniden seçer.
     """
     from src.helper.train import seed_group
+    shown = {m.key for m in models}
     groups: dict = {}
-    for m in models:
+    for m in cache.models():                       # üyeler gizli olsa da (ek seed'ler) bütün modellerden toplanır
         if m.key.endswith("_hizli"):
             continue
         groups.setdefault(seed_group(m.key)[0], []).append(m)
     out = []
     for base, members in groups.items():
-        if len(members) < 2 or not all(m.has_preds for m in members):
+        if base not in shown or len(members) < 2 or not all(m.has_preds for m in members):
             continue
         head = next((m for m in members if m.key == base), members[0])
         out.append(replace(head, key=f"{base}_ens", label=f"{head.label.split(' · seed')[0]} · ensemble",
@@ -201,6 +202,52 @@ def views_table(models: list, store, split: str) -> pd.DataFrame:
     wide = wide[[f"{a} · {b}" for a in ("PR-AUC", "ROC-AUC", "CSI") for b in ev.VIEWS]].round(3)
     wide.attrs["rates"] = df.drop_duplicates("görünüm").set_index("görünüm")["hortum oranı"].to_dict()
     return wide.reset_index()
+
+
+# ---------------------------------------------------------------- temel 3 model (doğrulamaya göre seçim)
+
+def _val_pr(info, store) -> float | None:
+    r = metrics_for(info, store, "val") or {}
+    v = r.get("PR-AUC")
+    return None if v is None or v != v else float(v)
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def _families(stamps: tuple, _store) -> dict:
+    """Mimariye göre deneyler (hiperparametre ve hızlı denemeler hariç), doğrulama PR-AUC'sine göre sıralı.
+    Seed'i olan deneylerde seed'lerin ortalaması. Test kümesi seçimde hiç kullanılmaz."""
+    from src.helper.train import seed_group
+    groups: dict = {}
+    for m in cache.models():
+        if m.role in ("hp", "quick"):
+            continue
+        groups.setdefault(seed_group(m.key)[0], []).append(m)
+    out: dict = {}
+    for base, ms in groups.items():
+        head = next((m for m in ms if m.key == base), None)
+        if head is None:
+            continue
+        vals = [v for v in (_val_pr(m, _store) for m in ms) if v is not None]
+        if vals:
+            arch = head.arch or "tornado_cnn"
+            out.setdefault(arch, []).append({"key": base, "mean": float(np.mean(vals)), "vals": vals})
+    for rows in out.values():
+        rows.sort(key=lambda r: -r["mean"])
+    return out
+
+
+def families(store) -> dict:
+    """{mimari: [{key, mean, vals}, …]} en iyiden kötüye (doğrulama PR-AUC)."""
+    stamps = tuple(sorted((m.key, m.preds_path.stat().st_mtime if m.has_preds else 0.0) for m in cache.models()))
+    return _families(stamps, store)
+
+
+def core_models(store) -> list:
+    """Sunumun ve "Temel 3" görünümünün modelleri: doğrulamada en iyi TornadoCNN varyantı,
+    en iyi ResNet-18 ve öteki ResNet-18 (ön-eğitimin etkisi). Yeniden eğitimden sonra kendiliğinden değişir."""
+    f, by = families(store), {m.key: m for m in cache.models()}
+    keys = [r["key"] for r in f.get("tornado_cnn", [])[:1]] + [r["key"] for r in f.get("resnet18", [])[:2]]
+    return [by[k] for k in keys if k in by]
 
 
 # ---------------------------------------------------------------- sekmeler arası küçük yardımcılar

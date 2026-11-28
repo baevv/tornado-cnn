@@ -18,8 +18,19 @@ import pandas as pd
 from src.helper import paths
 
 PREDS_FILE = "preds.parquet"
-# Okabe-Ito (renk körlüğüne dayanıklı), sarı yerine koyu mavi; tema ile aynı sıra
-MODEL_COLORS = ["#56B4E9", "#009E73", "#0072B2", "#CC79A7", "#D55E00", "#E69F00", "#000000", "#999999"]
+# Okabe-Ito (renk körlüğüne dayanıklı), sarı yerine koyu mavi; tema ile aynı sıra. Sonrası Tol'un paletinden.
+MODEL_COLORS = ["#56B4E9", "#009E73", "#0072B2", "#CC79A7", "#D55E00", "#E69F00", "#000000", "#999999",
+                "#882255", "#44AA99", "#DDCC77", "#332288"]
+
+# Model rolleri (klasör adından): arayüz varsayılan olarak yalnız "main" ve "ablation" gösterir.
+ROLES = {
+    "main": "Ana karşılaştırma",          # experiments.json'da "seeds" listesi olan deneylerin varsayılan seed'i
+    "ablation": "Ablasyon",               # diğer 03_ / 05_ deneyleri
+    "seed": "Ek seed",                    # <ad>_s<seed> (Karşılaştırma'da ensemble olarak birleşir)
+    "hp": "Hiperparametre denemesi",      # 04_ (OAT; sonuçları 04 defterinde)
+    "quick": "Hızlı deneme",              # _hizli (yalnız 2017; ön sonuç, karar G1)
+}
+VIEWS = {"main": ("main", "ablation"), "seeds": ("main", "ablation", "seed"), "all": tuple(ROLES)}
 
 
 @dataclass
@@ -36,6 +47,7 @@ class ModelInfo:
     color: str = "#0072B2"
     history: list = field(default_factory=list)
     members: list = field(default_factory=list)    # boş değilse seed ensemble'ı (O3): skor = üyelerin ortalaması
+    role: str = "ablation"                          # ROLES anahtarı
 
     @property
     def preds_path(self) -> Path:
@@ -72,6 +84,24 @@ def _experiments() -> dict:
     return {e["name"]: e for e in [*cfg.get("baselines", []), *cfg.get("experiments", [])]}
 
 
+def model_role(name: str, exps: dict | None = None) -> str:
+    """Klasör adından rol: _hizli → quick, 04_ → hp, _s<seed> → seed, "seeds" listesi olan deney → main."""
+    if name.endswith("_hizli"):
+        return "quick"
+    if name.startswith("04_"):
+        return "hp"
+    if re.search(r"_s\d+$", name):
+        return "seed"
+    exps = _experiments() if exps is None else exps
+    return "main" if exps.get(name, {}).get("seeds") else "ablation"
+
+
+def visible(models: list, view: str = "main") -> list:
+    """Görünüm seçicisine göre modeller: main (ana + ablasyon), seeds (+ ek seed'ler), all (hepsi)."""
+    roles = VIEWS.get(view, VIEWS["main"])
+    return [m for m in models if m.role in roles]
+
+
 def discover(root: Path | None = None) -> list[ModelInfo]:
     """models_root altındaki her eğitilmiş modeli bulur (best.pt + results.json)."""
     root = Path(root) if root else models_root()
@@ -102,7 +132,10 @@ def discover(root: Path | None = None) -> list[ModelInfo]:
             arch=res.get("arch") or spec.get("arch") or "",
             kwargs=dict(res.get("model_kwargs") or spec.get("model_kwargs") or {}),
             history=hist,
+            role=model_role(d.name, exps),
         ))
+    order = list(ROLES)
+    found.sort(key=lambda m: (order.index(m.role), m.key))      # ana modeller önce: renkleri ve sıraları sabit
     for i, m in enumerate(found):
         m.color = MODEL_COLORS[i % len(MODEL_COLORS)]
     return found
